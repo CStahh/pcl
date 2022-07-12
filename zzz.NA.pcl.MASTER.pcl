@@ -1,0 +1,3979 @@
+#---------------------------------------------------------------------------
+#DEVICE CALIBRATION
+	#----adjust dimensions / screen sizes
+		#-------- screen related variable declarations
+double reduced_screen_ratio = 4.0 / 3.0;
+double used_screen_height = display_device.custom_height();
+double used_screen_width = display_device.custom_width();
+bool screen_adjust = false;
+
+		# --- sub_adjust_used_screen_size ---
+sub
+	adjust_used_screen_size(bool use_entire_screen )
+begin
+	if !use_entire_screen then
+		if display_device.custom_width() > used_screen_height * reduced_screen_ratio then
+			used_screen_width = used_screen_height * reduced_screen_ratio
+		end
+	end
+end;
+
+#---------------------------------------------------------------------------
+#SETTING AND ADJUSTING LANGUAGE FILES
+	#----language file SUBs - in case a language file needs to be retrieved, adjusted and presented
+		# --- sub get_lang_item ---
+		# This subroutine is designed to ensure that an empty caption/item in a language
+		# file does not cause a run-time error when one tries to set a text caption to that empty value.
+		# It accepts a language file and an item name (string) as arguments.
+		# The return value is a string containing the text/caption from the item name. If the text of 
+		# that item is empty, the return value is " ".
+sub
+	string get_lang_item( language_file lang_file, string item_name )
+begin
+	string temp = lang_file.get_text( item_name );
+	if temp.count() == 0 then 
+		temp = " ";
+	end;
+	return temp
+end;
+
+		# --- sub load_language_file ---
+		# Creates a language_file and loads it from a given file
+sub
+	language_file load_language_file( string filename )
+begin
+	if !file_exists( filename ) then
+		exit( "The language file you specified does not exist." );
+	end;
+	language_file lang = new language_file;
+	lang.load( filename );
+	return lang
+end;
+
+		# --- sub word_wrap ---
+		# word wraps the text object to the given width/height, starting at the given font size
+sub
+	word_wrap( string caption, double max_width, double max_height, double font_size, bool char_wrap, text text_part )
+begin
+	text_part.set_font_size( font_size );
+	text_part.set_caption( caption );
+	text_part.set_max_text_height( max_height );
+	text_part.set_max_text_width( max_width );
+	text_part.set_character_wrap_mode( char_wrap );
+	text_part.redraw();
+end;
+
+		# --- sub full_size_word_wrap ---
+		# Calls word_wrap, using a fixed percentage of the used screen size as the maximum size
+double text_fill_percentage = 0.9;
+sub
+	full_size_word_wrap( string caption, double font_size, bool char_wrap, text text_part  )
+begin
+	word_wrap( caption, used_screen_width * text_fill_percentage, 
+		used_screen_height * text_fill_percentage, font_size, char_wrap, text_part )
+end;
+			#language file and language sub variables used in pcl
+string insttype = "pic";# type of inst sequence
+language_file lang; #generic lang file var used wheneven lang files used (logowelcome, thinkback inst)
+string langfile_name;#denotes the language file name (minus ".xml")
+string item_key;#denotes the key term to find in the language file
+string lang_type; #the string used what the text says (e.g., = get_lang_item(lang, item_key);)
+
+#---------------------------------------------------------------------------------------------
+#SET MAJOR START VARIABLES - sub number and game type
+#----Setting most of the standard pareameters used in an experiment
+		#--------Main pcl VAR DECLARATIONS --- (used in virtually every scenario)
+		# these can be established and used in any experiment
+		
+			#exp set-up variables -  numbers for settings and stats
+string exp_name;#------- name for experiment package
+double id_number;#id number of sub - assigned on first play
+double id_tag;#id tag which is just the number part (no date) of the id number
+#int id_number;#id number of sub - assigned on first play
+double spectime1;#number assigned for date/time at the start of each scenario *note - not recorded in specs file
+double spectime2;# last date/time number recorded
+#int spectime1;#number assigned for date/time at the start of each scenario *note - not recorded in specs file
+#int spectime2;# last date/time number recorded
+double sesstimediff;#diff between spectime1 and spectime2 - used to determine whether intro sequence runs
+int sce_starts; #number of times any scenario was started
+int game_starts; #number of times any game was started
+int game_ends; #number of times any game was ended (i.e., after main loop)
+int sce_ends; #number of times and sce was ended completely (i.e., hit exit after game)
+
+string act_event; #"sce_start", "game_start", "game_end", "sce_end"
+int act_index; #the number (either sce_starts, game_starts, game_ends, or sce_ends
+string act_stamp;#string that goes on activity log - format: "act_time.exp_name.sce_name.act_event
+#int overall_sess_number;#
+#int lastsessinittime_number;# time last session was initiated
+#string lastsessinittime;# time last session was initiated
+#string currentsessinittime;# time at start of current session
+
+			#sce set-up-file variables
+string file_type;#------ examples "SPECS" or "SUMMSTATS" or "zSUMMARY" or "expSPECS" or "activity"
+string sce_name; #------ corresponds to the name of the game
+input_file in = new input_file;
+output_file out = new output_file;
+				#sce set-up variables - SPECS (standard specs for (most) every - game)
+int gametrial_number;#standard game summ stat that keeps track of num of sess for a game
+int overallcumulative_score ;
+int topround_score ;
+array <int> gametrial_scores[0];
+array <int> highlowgmtrial_scores[0];
+					#sce set-up variables - non-standard SPECS (used often but not in default SPECS)
+int current_level = in.get_int();
+					#operators for sorting scores from high to low - used with "sort_scores" and score_sizing subs
+int insert_index;
+array <int> newhighlowgmtrial_scores[0];
+array <string> newhighlowgmtrial_writescores[0];
+
+				#sce set-up variables - SUMMSTATS (variables recorded - and added to - after most games); contain prefix "overall"
+					#common summstats used in (mostly) every game
+int numroundstotal;#standard game summ stat that keeps track of how many total rounds have been played
+int overallcorr_rounds;
+int overallincorr_rounds;
+double overallcumm_rt;
+double overallavg_rt;
+double overallavg_rtsec;
+double overallfastrnd_rt;
+int overallhighlevel;
+int overallhighroundscore;
+int overallhighestgm_score;
+double overallavggm_score;
+double overallavgrd_score;
+
+				#sce set-up variables - GAME stats
+					#common gamestat variable used in (mostly) every game
+int gametrial_score;#------- aka "session score" - total score after a session is over
+int gametrial_rounds;#number of rounds completed in a game - the 1 and only standard score added to statgamenumbers array
+int corrgamerounds;
+int incorrgamerounds;
+double gameavg_rt;
+#note: topround_score (declared above) also usually added here
+					#Common game operators
+double item_score;
+double correct_bonus;
+int round_score;
+double avgroundscore;
+double gamecumm_rt;
+int round_rt;
+int gamefastrnd_rt;
+string running_acc;
+int highgameround_score;
+int highgameround_level;
+
+		#sce set-up variables - to adjust certain aspects of the presentation during gameplay
+string preorpost = "pre"; # for score display - indicates whether game is pre or post
+                          # no highlight box or post-5 score if this is pre
+bool addbgfile = true;
+bool addtune = true;
+bool looptune = true;
+int bg_index = 1;
+int music_index = 2;
+bool insert_bg = true;
+bool coloradjust = false;#----- determines whether you want to change from the default colors of white on black
+int fcolor_index;#------stands for "front color" - determines the color of "pieces" like boxes, lines and text - when set to 1 is white, 2 is black
+int tcolor_index; #-----stands for "transparent color" - determines what the background and transparent colors of the pieces are - is almost always set opposite of "fcolor
+array <int> colors[2][3] = {{255, 255, 255}, {0, 0, 0}};
+bool addmenuinfo = false;
+bool printsummary = true;
+
+double font_multiplier;#used to attempt to adapt certain item sizes to screens other than LENOVO device
+
+		#sdf backdata common "datax" variables (intended for AI use)
+array<int> dxnumbers[0];
+string dxnumbers_string;
+array<int> dxpositions[0];
+string dxpositions_string;
+array<string> press_accs[0];
+string press_accs_string;
+array<int> press_times[0];
+string press_times_string;
+array<double> dxtarget_xypos[0][0];
+string dxtarget_xystring;
+array<double> dxtouch_xypos[0][0];
+string dxtouch_xystring;
+
+#---------------------------------------------------------------------------------------------
+#INITIATE NEW CLIENT / CHECK AND USE EXPERIMENT AND GAME SETTINGS
+	#----verifies files and gets specs
+
+		# --- sub print_expoutput ---
+		# prints output to adjust experiment based on game (standard id_number and activity numbers)
+		#  - prints id_number and activity numbers
+sub print_expoutput begin
+out.open(scenario_directory + "\\" + "0zz." + exp_name + "." + file_type + ".txt");
+out.print(id_tag);
+out.print("\t");
+out.print(id_number);
+out.print("\t");
+out.print(spectime2);
+out.print("\t");
+out.print(sce_starts);
+out.print("\t");
+out.print(game_starts);
+out.print("\t");
+out.print(game_ends);
+out.print("\t");
+out.print(sce_ends);
+end;
+#Note** this print sub placed at beginning because these nubers get printed early and often in sce
+#Note** spectime1 not printed - it's calculated during scenario
+
+		# --- Sub expfile_verify ---****** needs to be integrated with client verify
+		# creates an id number and prints it to a new experiment SPECs file if one doesn't already exist
+#output_file in_expnew = new output_file;
+sub expfile_verify begin
+output_file in_expnew = new output_file;
+bool file_verify = file_exists(scenario_directory + "\\" + "0zz." + exp_name + "." + file_type + ".txt");
+if file_verify == false then
+	in_expnew.open(scenario_directory + "\\" + "0zz." + exp_name + "." + file_type + ".txt");
+	#id_number = 987654;
+	#in_expnew.open(scenario_directory + "\\" + "0zz." + exp_name + "." + file_type + ".txt");
+	#id_number = double(date_time("yyyymmddhhnn"));
+	#in_expnew.print(id_number);
+	#in_expnew.print("\t");
+	#in_expnew.print(id_number);
+	#in_expnew.print("\t");
+	#in_expnew.print(sce_starts);
+	#in_expnew.print("\t");
+	#in_expnew.print(game_starts);
+	#in_expnew.print("\t");
+	#in_expnew.print(game_ends);
+	#in_expnew.print("\t");
+	#in_expnew.print(sce_ends);
+	#in_expnew.close();
+	in_expnew.close();
+end;
+end;
+
+		# --- Sub set_id ---# sets an ID number if sce starts are 0... ie assigns an ID on first start
+sub set_id (int starts) begin
+if starts <= 0 && id_number == 0 then
+	#id_number = 987654.0;
+	#double id_tag = double(date_time("yyyymmddhhnnss"));
+	#term.print(id_tag);
+	#term.print_line("<- ID TAG");
+	id_tag = random(100000, 999999);
+	#id_number = random(100000, 999999);
+	id_number = double(date_time("yyyymmdd")) + (id_tag / 1000000);
+	#id_number = 123456.654321;
+	term.print(id_number);
+	term.print_line("<- ID NUMBER");
+	print_expoutput();
+	out.close();
+end;
+end;
+
+		# --- sub get_expspecs ---
+		# gets the specs for a full experiment - specs change based on performance in previous sessions
+sub get_expspecs begin
+in.open(scenario_directory + "\\" + "0zz." + exp_name + "." + file_type + ".txt");
+id_tag = in.get_double();
+#id_number = in.get_int();
+id_number = in.get_double();
+#spectime2 = in.get_int();
+spectime2 = in.get_double();
+sce_starts = in.get_int();
+game_starts = in.get_int();
+game_ends = in.get_int();
+sce_ends = in.get_int();
+#Note** spectime1 not printed / captured - this comes from current game (see FAKE outlines)
+in.close();
+end;
+
+# --- sub tag_logfile ---
+		# adds points for post-export renaming and analysis
+sub tag_logfile begin
+	numdata_event.set_event_code("parsepointss");
+stimcodedata_trial.present();
+numdata_event.set_event_code(string(id_tag));
+stimcodedata_trial.present();
+numdata_event.set_event_code(date_time("yyyymmddtt"));
+stimcodedata_trial.present();
+numdata_event.set_event_code("sub." + string(id_number));
+stimcodedata_trial.present();
+numdata_event.set_event_code(string(id_number));
+stimcodedata_trial.present();
+numdata_event.set_event_code("parsepointse");
+stimcodedata_trial.present();
+numdata_event.set_event_code("stim");
+end;
+
+		# --- Sub actfile_verify ---
+		# checks to see if there is an activity file and creates one if one doesn't already exist
+sub actfile_verify begin
+output_file in_actnew = new output_file;
+bool file_verify = file_exists(scenario_directory + "\\" + "0zzz." + exp_name + "." + file_type + ".txt");
+if file_verify == false then
+	#in_actnew.open_append(scenario_directory + "\\" + "0zzz." + exp_name + "." + file_type + ".txt");
+	in_actnew.open(scenario_directory + "\\" + "0zzz." + exp_name + "." + file_type + ".txt");
+	in_actnew.close();
+end;
+end;
+
+	#---- Verify file and create new SPECS file if first trial / get standard specs
+		# --- sub file_verify ---
+		# checks to see if there is a specs file for a specific game and creates one if there isn't
+sub file_verify begin
+output_file in_new = new output_file;
+bool file_verify = file_exists(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+if file_verify == false then
+	in_new.open(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+	in_new.close();
+end;
+end;
+
+		# --- sub get_specs ---
+		# gets the specs for a specific game - specs change based on performance in previous games
+sub get_specs begin
+in.open( scenario_directory + "\\" + sce_name + "." + file_type + ".txt" );
+gametrial_number = in.get_int() + 1;
+overallcumulative_score = in.get_int();
+loop int i = 0 until i == (gametrial_number - 1) begin
+	gametrial_scores.add(in.get_int());
+	i = i + 1;
+end;
+loop int i = 0 until i == (gametrial_number - 1) begin
+	highlowgmtrial_scores.add(in.get_int());
+	i = i + 1;
+end;
+end;
+
+		# --- sub statfile_verify ---
+		#checks to see if there is a file with the running summary stats - creates one if there isnt
+		#before running change sce_name to scenario name and file_type to "SUMMSTATS"
+sub statfile_verify begin
+output_file in_summstatnew = new output_file;
+bool file_verify = file_exists(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+if file_verify == false then
+	in_summstatnew.open(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+	in_summstatnew.close();
+end;
+end;
+
+		# --- sub get_summstats ---
+		# gets the specs for a full experiment - specs change based on performance in previous sessions
+		# gets 8 default numbers (see below - slightly different than listing - gametrial_number and overallcumm_rt)
+		# remember to add extra numbers or close in sce as needed
+sub get_summstats begin
+in.open(scenario_directory + "\\" + sce_name + "." + file_type + ".txt" );
+#gametrial_number = in.get_int();
+numroundstotal = in.get_int();
+overallcorr_rounds = in.get_int();
+overallincorr_rounds = in.get_int();
+overallhighlevel = in.get_int();
+overallhighroundscore = in.get_int();
+overallhighestgm_score = in.get_int();
+overallcumm_rt = in.get_int();
+overallavg_rt = in.get_double();
+end;
+
+
+
+#****- need play logosessstart_seq subroutine
+
+
+#---------------------------------------------------------------------------
+#GENERIC PART SIZING AND TRANSITION COMPONENTS
+	#----variables, size/pic adjustments and response subs for some general transition parts
+		
+		#--- sub genericpart_sizing ---
+		#sizes the "back" and "forward" arrows and lineboxes and highlight (linebox not in use)
+		# as well at the perimeter linebox, menu line session title and session number
+double forwardback_x = used_screen_width * (0.5) * 0.85 * (-1);
+double forwardback_y = used_screen_height * (0.5) * 0.800 * (-1);
+double forwardbackarrow_x = used_screen_width * (0.5) * 0.895 * (-1);
+double forwardbackarrow_y = used_screen_height * (0.5) * 0.800 * (-1);
+double i_x = forwardbackarrow_x * 0.9 * (-1);
+double i_y = forwardbackarrow_y * 0.9;
+double forback_coors_x = (used_screen_width * 0.5) * 0.056;
+double forback_coors_y = (used_screen_height * 0.5) * 0.098;
+array <double> forback_coors[4][2];
+double fix_play_h = used_screen_height * 0.2604;
+#double trans_arrow_x = used_screen_width * 0.1;
+
+#exit parts variables
+double endlinebox_coors_x = (used_screen_width * 0.5) * 0.44;
+double endlinebox_coors_y = (used_screen_height * 0.5) * 0.50;
+array <double> endlinebox_coors[4][2];
+double endselectlinebox_coors_x = (used_screen_width * 0.5) * 0.14;
+double endselectlinebox_coors_y = (used_screen_height * 0.5) * 0.14;
+array <double> endselectlinebox_coors[4][2];
+double exitbutton_width = used_screen_width * 0.14;
+double exitbutton_height = used_screen_height * 0.14;
+double exitbutton1_x = used_screen_width * 0.0926 * (-1);
+double exitbutton2_x = used_screen_width * 0.0926;
+double exitbutton_y = used_screen_height * 0.06 * (-1);
+#array<double> exitbutton_coors[2][2];
+double iannulus_out = used_screen_width * 0.054;
+double iannulus_in = used_screen_width * 0.050;
+double itext_size = used_screen_height * 0.066;
+
+sub genericpart_sizing begin
+back_arrow.set_coordinates(1, 0, -1, 0);
+back_arrow.set_line_width(used_screen_height * 0.009);
+back_arrow.set_head_width(used_screen_height * 0.0842);
+back_arrow.set_head_length(used_screen_width * 0.0438);
+back_arrow.set_head_type(head_swift);
+back_arrow.redraw();
+forward_arrow.set_coordinates(1, 0, -1, 0);
+forward_arrow.set_line_width(used_screen_height * 0.012);
+forward_arrow.set_head_width(used_screen_height * 0.0842);
+forward_arrow.set_head_length(used_screen_width * 0.0438);
+forward_arrow.set_head_type(head_swift);
+forward_arrow.redraw();
+loop int i = 1 until i > forback_coors.count() begin
+	forback_coors[i][1] = forback_coors_x;
+	forback_coors[i][2] = forback_coors_y;
+	if i == 1 || i == 4 then 
+		forback_coors[i][1] = forback_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		forback_coors[i][2] = forback_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+forwardback_linebox.add_polygon(forback_coors, false, 1, 0);
+forwardback_linebox.set_line_width(used_screen_height * 0.002);
+forwardback_linebox.redraw();
+forwardback_highlight.set_radius(forback_coors_x * 2.36);
+forwardback_highlight.set_size(forback_coors_x * 2.18, forback_coors_y * 2.36);
+forwardback_highlight.set_line_width(0);
+forwardback_highlight.redraw();
+
+double perimeter_coors_x = (used_screen_width * 0.5) * 0.98;
+double perimeter_coors_y = (used_screen_height * 0.5) * 0.98;
+array <double> perimeter_coors[4][2];
+loop int i = 1 until i > perimeter_coors.count() begin
+	perimeter_coors[i][1] = perimeter_coors_x;
+	perimeter_coors[i][2] = perimeter_coors_y;
+	if i == 1 || i == 4 then 
+		perimeter_coors[i][1] = perimeter_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		perimeter_coors[i][2] = perimeter_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+perimeter_linebox.add_polygon(perimeter_coors, false, 1, 0);
+perimeter_linebox.set_line_width(used_screen_height * 0.008);
+perimeter_linebox.set_line_color(255, 255, 255, 255);
+perimeter_linebox.redraw();
+
+menu_line.add_line(used_screen_width * 0.24 * (-1), 0, used_screen_width * 0.24, 0);
+menu_line.set_line_width(used_screen_height * 0.01);
+menu_line.redraw();
+
+#---- sizing fixtion cross that precedes gameplay
+fix_cross.set_line_width(used_screen_width * 0.0044);
+fix_cross.add_line((used_screen_width * 0.0443) *(-1), 0, used_screen_width * 0.0443, 0);
+fix_cross.add_line(0, used_screen_width * 0.0443, 0, (used_screen_width * 0.0443) * (-1));
+fix_cross.set_transparent_color(0, 0, 0);
+fix_cross.redraw();
+
+#---- sizing fixtion play symbol that precedes gameplay
+fix_play.set_size(used_screen_width * 0.2064, fix_play_h);
+fix_play.set_radius(fix_play_h * 0.5);
+fix_play.set_transparent_color(0, 0, 0);
+fix_play.redraw();
+
+loop int i = 1 until i > endlinebox_coors.count() begin
+	endlinebox_coors[i][1] = endlinebox_coors_x;
+	endlinebox_coors[i][2] = endlinebox_coors_y;
+	if i == 1 || i == 4 then 
+		endlinebox_coors[i][1] = endlinebox_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		endlinebox_coors[i][2] = endlinebox_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+
+loop int i = 1 until i > endselectlinebox_coors.count() begin
+	endselectlinebox_coors[i][1] = endselectlinebox_coors_x;
+	endselectlinebox_coors[i][2] = endselectlinebox_coors_y;
+	if i == 1 || i == 4 then 
+		endselectlinebox_coors[i][1] = endselectlinebox_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		endselectlinebox_coors[i][2] = endselectlinebox_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+
+endselect_bgpolygon.set_radius(used_screen_width);
+endselect_bgpolygon.set_size(used_screen_width, used_screen_height);
+endselect_bgpolygon.redraw();
+end_linebox.add_polygon(endlinebox_coors, true, 1, 0);
+end_linebox.set_fill_color(0, 0, 130, 255);
+end_linebox.set_line_color(0, 0, 255, 255);
+end_linebox.set_line_width(used_screen_width * 0.008);
+end_linebox.redraw();
+endselect_linebox.add_polygon(endselectlinebox_coors, true, 1, 0);
+endselect_linebox.set_fill_color(100, 100, 255, 0);
+endselect_linebox.set_line_color(50, 50, 255, 255);
+endselect_linebox.set_line_width(used_screen_width * 0.004);
+endselect_linebox.redraw();
+endselect_text1.set_font_size(used_screen_height * 0.14);
+endselect_text1.set_max_text_height(used_screen_height * 0.14);
+endselect_text1.set_max_text_width(end_linebox.width() * 0.92);
+endselect_text1.redraw();
+endselect_text2.set_font_size(used_screen_height * 0.08);
+endselect_text2.set_max_text_height(used_screen_height * 0.08);
+endselect_text2.redraw();
+endselect_text3.set_font_size(used_screen_height * 0.08);
+endselect_text3.set_max_text_height(used_screen_height * 0.08);
+endselect_text3.redraw();
+endselecthighlight_polygon1.set_size(exitbutton_width, exitbutton_height);
+endselecthighlight_polygon1.set_radius(exitbutton_width);
+endselecthighlight_polygon1.redraw();
+endselecthighlight_polygon2.set_size(exitbutton_width, exitbutton_height);
+endselecthighlight_polygon2.set_radius(exitbutton_width);
+endselecthighlight_polygon2.redraw();
+
+if coloradjust == true then
+back_arrow.set_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+back_arrow.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+back_arrow.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+back_arrow.redraw();
+
+forward_arrow.set_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+forward_arrow.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+forward_arrow.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+forward_arrow.redraw();
+
+perimeter_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+perimeter_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+perimeter_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+perimeter_linebox.redraw();
+
+menu_line.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+menu_line.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+menu_line.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+menu_line.redraw();
+
+sesstitle_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+sesstitle_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+sesstitle_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+sesstitle_text.redraw();
+end;
+#sessnum_text.set_caption(string(gametrial_number + 1));
+#sessnum_text.set_font_size(used_screen_height * 0.118);
+#sessnum_text.redraw();
+end;
+
+		# --- sub set_sess_number
+		# sets sess number just prior to present ing it on meun screen
+sub set_sess_num begin
+string sess_string = "Session " + string(gametrial_number);
+sesstitle_text.set_caption(sess_string);
+sesstitle_text.set_font_size(used_screen_height * 0.104);
+sesstitle_text.redraw();
+end;
+
+		#- readyplay, countdown, transition variables
+double ready_play_radius = used_screen_height * 0.325;
+double play_text_font_size = used_screen_height * 0.1146;
+double ready_play_y = used_screen_height * 0.0781;
+double play_text_x = used_screen_width * 0.0337;
+double play_text_y = (used_screen_height * 0.2865) * (-1);
+
+		# --- sub readyplay_sizepresent
+		# Resizes and presents the large play buton as well as the fixation play
+sub readyplay_sizepresent begin
+ready_play.set_radius(ready_play_radius);
+ready_play.redraw();
+play_text.set_font_size(play_text_font_size);
+play_text.redraw();
+
+if addbgfile == true then
+#backgrounds[bg_index].set_load_size(used_screen_height, used_screen_width, 0);
+#backgrounds[bg_index].load();
+ready_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+
+ready_pic.add_part(ready_play, 0, ready_play_y);
+ready_pic.add_part(play_text, play_text_x, play_text_y);
+play_text.set_transparent_color(0, 0, 0);
+playtransition_trial.add_stimulus_event(ready_pic);
+transitionflash_trial.set_monitor_sounds(true);
+transitionflash_trial.present();
+#data_trial.present();
+playtransition_trial.present();
+playtransition_trial.remove_stimulus_event(playtransition_trial.stimulus_event_count());
+transitionflash_trial.set_monitor_sounds(false);
+end;
+
+
+		# --- sub countdown ---
+		#plays the countdown play button plus the fixation as well as the noises
+#double fix_play_h = used_screen_height * 0.2604;
+#double trans_arrow_x = used_screen_width * 0.1;
+sub countdown begin
+if addbgfile == true then
+#backgrounds[bg_index].set_load_size(used_screen_height, used_screen_width, 0);
+#backgrounds[bg_index].load();
+count_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+	count_pic.add_part(fix_cross, 0, 0);
+			#ready_beep.load();
+			sine400_wav.load();
+			ready_beep.set_attenuation(0.2);
+			count_trial.add_stimulus_event(ready_beep);
+			count_trial.set_duration(1600);
+			count_trial.present();
+			sine400_wav.unload();
+			count_trial.remove_stimulus_event(2);
+			count_pic.remove_part(count_pic.part_count());
+count_pic.add_part(fix_play, 0, 0);
+sine1000_wav.load();
+go_beep.set_attenuation(0.2);
+count_trial.add_stimulus_event(go_beep);
+count_trial.set_duration(1200);
+count_trial.present();
+sine1000_wav.unload();
+end;
+
+
+#---------------------------------------------------------------------------------------------
+#LOGO PARTS AND SUBS
+	#----Makes parts and displays the logo screen
+		# --- sub logo_sizing ---
+		#Adapts logo parts to the device's screen size
+
+double logo_font_size;
+term.print(logo_font_size);
+term.print_line("- logo font size decl");
+if device_description() == "LENOVO 20175" then
+	logo_font_size = 0.258;
+else
+	logo_font_size = 0.2;
+end;
+term.print(logo_font_size);
+term.print_line("- logo font size post");
+
+array<string> keeping_strings[33] = {"Going", "Improving", "Learning", "Achieving", "Persisting", "Striving", "Dreaming", "Winning",
+"Accomplishing", "Moving", "Overcoming", "Attaining", "Persisting", "Performing", "Rising", "Adapting", "Working", "Striving",
+"Dreaming", "Winning", "Gaining", "Moving", "Solving", "Reaching", "Aquiring", "Perfecting", "Scoring", "Fulfilling", "Prevailing", 
+"Triumphing", "Conquering", "Producing", "Realizing", "Improving", "Learning", "Achieving", "Persisting", "Striving", "Dreaming", "Winning",
+"Accomplishing", "Moving", "Overcoming", "Attaining"};
+
+array<string> gs_strings[19] = {"Better", "Stronger", "Quicker", "Brighter", "Sharper", "Swifter", "Cleverer",
+ "Brainier", "Craftier", "Shrewder", "Wiser", "Defter", "Adroiter", "Spryer", "Astuter", "Cannier",
+"Slyer", "Wilier", "Trickier"};
+
+#double company_x = used_screen_width * 0.042;#for NK logo
+double company_y = used_screen_height * 0.12;#for NK logo
+double company_x = 0;#for gs logo
+#double company_y = 0;#for gs lgog
+double ing_x = used_screen_width * 0.24;
+double ing_y = used_screen_height * 0.05 * (-1);
+#double g_x = used_screen_width * 0.30 * (-1);
+double g_x = 0;
+double g_y = used_screen_height * 0.22;
+double gs_x = 0;
+double gs_y = used_screen_height * 0.04;
+int ingms_int = 400;
+int ingits_int = 6;
+int ingpart_index = 2;
+
+sub logo_sizing begin
+
+gs_text.set_font_size(used_screen_height * 0.112);
+gs_text.set_max_text_height(used_screen_height * 0.22);
+#gs_text.set_max_text_width(used_screen_width * 0.40);
+gs_text.redraw();
+g_text.set_font_size(used_screen_height * 0.12);
+g_text.set_max_text_height(used_screen_height * 0.22);
+#g_text.set_width(used_screen_width * 0.3);
+g_text.redraw();
+logokeep_text.set_font_size(used_screen_height * 0.14);
+logokeep_text.redraw();
+justkeep_text.set_font_size(used_screen_height * 0.14);
+justkeep_text.redraw();
+inglogo_text.set_font_size(used_screen_height * 0.07);
+inglogo_text.redraw();
+logo_touch_text.set_font_size(used_screen_height * 0.028);
+logo_touch_text.redraw();
+
+endselect_bgpolygon.set_background_color(255, 255, 255, 255);
+endselect_bgpolygon.set_line_color(255, 255, 255, 255);
+endselect_bgpolygon.set_line_width(used_screen_height * 0.028);
+endselect_bgpolygon.set_radius(used_screen_width);
+endselect_bgpolygon.redraw();
+endselect_box.set_color(240, 240, 240);
+endselect_box.set_alpha(210);
+endselect_box.set_height(used_screen_height);
+endselect_box.set_width(used_screen_width);
+
+double perimeter_coors_x = (used_screen_width * 0.5) * 0.98;
+double perimeter_coors_y = (used_screen_height * 0.5) * 0.98;
+array <double> perimeter_coors[4][2];
+loop int i = 1 until i > perimeter_coors.count() begin
+	perimeter_coors[i][1] = perimeter_coors_x;
+	perimeter_coors[i][2] = perimeter_coors_y;
+	if i == 1 || i == 4 then 
+		perimeter_coors[i][1] = perimeter_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		perimeter_coors[i][2] = perimeter_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+perimeter_linebox.add_polygon(perimeter_coors, false, 1, 0);
+perimeter_linebox.set_line_width(used_screen_height * 0.008);
+perimeter_linebox.set_line_color(255, 255, 255, 255);
+perimeter_linebox.redraw();
+end;
+
+		# --- Sub logo2_present ---
+		#scrolls through and presents all of the "ing" strings
+		#updated for neurokeep Feb 10, 2021
+sub words_present (int time, int its, int ptindex) begin
+	#ptindex = ptindex + 1;
+	#inglogo_text.set_caption(keeping_strings[ptindex]);
+	#inglogo_text.redraw();
+	#logo_pic.add_part(inglogo_text, ing_x, ing_y);
+	#logo_pic.remove_part(4);
+	#logo_pic.remove_part(3);
+	#logo_trial.set_duration(200);
+	#logo_trial.present();
+	#logo_pic.add_part(justkeep_text, company_x, company_y);
+	#logo_pic.add_part(inglogo_text, ing_x, ing_y);
+	#logo_trial.set_duration(time);
+	#logo_trial.present();
+	its = 6;
+	time = 500;
+	ptindex = 2;
+	loop int i = 1 until i > its begin
+		#logo_pic.remove_part(4);####--set to 4 for NK
+		#inglogo_text.set_caption(keeping_strings[ptindex]);#NK
+		#inglogo_text.redraw();#NK
+		#logo_pic.add_part(inglogo_text, ing_x, ing_y);#NK
+		logo_pic.remove_part(3);
+		gs_text.set_caption(gs_strings[ptindex]);#GS
+		gs_text.redraw();#GS
+		logo_pic.add_part(gs_text, gs_x, gs_y);#GS
+		#logo_pic.set_part_x(4, gs_x, left_coordinate);
+		logo_trial.set_duration(time);
+		logo_trial.present();
+		i = i + 1;
+		ptindex = ptindex + 1;
+		time = time - 50;
+	end;
+	its = 12;
+	time = 80;
+	loop int i = 1 until i > its begin
+		#logo_pic.remove_part(4);####--set to 4 for NK
+		#inglogo_text.set_caption(keeping_strings[ptindex]);#NK
+		#inglogo_text.redraw();#NK
+		#logo_pic.add_part(inglogo_text, ing_x, ing_y);#NK
+		logo_pic.remove_part(3);
+		gs_text.set_caption(gs_strings[ptindex]);#GS
+		gs_text.redraw();#GS
+		logo_pic.add_part(gs_text, gs_x, gs_y);#GS
+		#logo_pic.set_part_x(4, gs_x, left_coordinate);
+		logo_trial.set_duration(time);
+		logo_trial.present();
+		i = i + 1;
+		ptindex = ptindex + 1;
+	end;
+end;
+
+		# --- Sub logo2_present ---
+		#plays the logo "keep going" part
+		#updated for neurokeep Feb 10, 2021
+sub keeplogo_present begin
+
+logo_pic.set_background_color(255, 255, 255);
+
+backgrounds[bg_index].set_load_size(used_screen_height, used_screen_width, 0);
+#backgrounds[bg_index].set_background_color(0, 0, 0, 255);
+#backgrounds[bg_index].set_transparent_color(0, 0, 0);
+backgrounds[bg_index].load();
+#logo_pic.set_background_color(255, 255, 255);
+#logobulb_bg.set_load_size(used_screen_height, used_screen_width, 0);
+#logo_pic.set_background_color(255, 255, 255);
+#bulb_bit.set_background_color(0, 0, 0, 255);
+#bulb_bit.set_transparent_color(0, 0, 0);
+
+logo_pic.clear();
+#perimeter_linebox.set_line_color(0, 0, 255, 255);
+#perimeter_linebox.redraw();
+logo_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+#logo_pic.add_part(perimeter_linebox, 0, 0);
+
+logo_trial.set_duration(800);
+logo_trial.present();
+
+if addtune == true then
+maw.load();
+logo_sound.set_attenuation(0.18);
+logo_sound.set_loop_playback(true);
+logo_sound.present();
+end;
+
+
+#maw.load();
+#logo_sound.set_attenuation(0.2);
+#logo_sound.set_loop_playback(true);
+#logo_sound.present();
+
+logo_trial.set_duration(800);
+logo_trial.present();
+
+#NK logo
+#logo_pic.add_part(justkeep_text, company_x, company_y);
+#logo_trial.set_duration(1500);
+#logo_trial.present();
+#inglogo_text.set_caption(keeping_strings[1]);
+#inglogo_text.redraw();
+#logo_pic.add_part(inglogo_text, ing_x, ing_y);
+#logo_trial.set_duration(1000);
+#logo_trial.present();
+
+#GS logo
+logo_pic.add_part(g_text, g_x, g_y);
+#logo_pic.set_part_x(3, g_x, left_coordinate);
+logo_trial.set_duration(800);
+logo_trial.present();
+#logo_pic.remove_part(3);
+gs_text.set_caption(gs_strings[1]);#GS
+gs_text.redraw();
+logo_pic.add_part(gs_text, gs_x, gs_y);
+#logo_pic.set_part_x(4, gs_x, left_coordinate);
+logo_trial.set_duration(500);
+logo_trial.present();
+
+words_present(ingms_int, ingits_int, ingpart_index);
+
+#going
+#logo_pic.remove_part(4);#swet to 4 for NK
+logo_pic.remove_part(logo_pic.part_count());
+#inglogo_text.set_caption(keeping_strings[1]);#NK
+#inglogo_text.redraw();#NK
+#gs_text.set_caption(gs_strings[1]);#GS
+gs_text.set_caption("SMARTER!");#GS
+gs_text.redraw();#GS
+#logo_pic.add_part(inglogo_text, ing_x, ing_y);#NK
+logo_pic.add_part(gs_text, gs_x, gs_y);
+#logo_pic.set_part_x(4, g_x, left_coordinate);
+logo_trial.set_duration(800);
+logo_trial.present();
+
+#bulb_bit.set_load_size(used_screen_height * 0.94, used_screen_width * 0.34, 0);
+#bulb_bit.set_background_color(255, 255, 255, 0);
+#bulb_bit.set_transparent_color(255, 255, 255);
+logobulb_bg.set_load_size(used_screen_height, used_screen_width, 0);
+logobulb_bg.load();
+logo_pic.remove_part(1);
+logo_pic.insert_part(1, logobulb_bg, 0, 0);
+logo_trial.set_duration(1600);
+logo_trial.present();
+
+
+#GS
+#logo_pic.remove_part(4);#swet to 4 for NK
+#logo_pic.remove_part(3);
+#logo_trial.set_duration(600);
+#logo_trial.present();
+#logo_pic.remove_part(3);
+#logo_trial.present();
+#logo_pic.add_part(logokeep_text, 0, company_y);#NK
+#logo_pic.add_part(gs_text, 0, g_y);#GS
+#logo_trial.set_duration(800);
+#logo_trial.present();
+
+
+###
+logo_trial.set_type(specific_response);
+logo_trial.set_terminator_button(2);
+logo_trial.set_duration(forever);
+transitionflash_trial.present();
+logo_touch_text.set_font_color(255, 255, 255);
+logo_touch_text.redraw();
+logo_pic.add_part(logo_touch_text, 0, used_screen_height * 0.36 * (-1));
+#logo_pic.add_part(test_line, 0, 0);
+logo_trial.present();
+logobulb_bg.unload();
+#backgrounds[bg_index].unload();
+end;
+
+
+
+		# --- Sub logo2_present ---
+		#plays the logo "animation" and song (V2)
+		#updated for neurokeep Feb 10, 2021
+sub logo2_present(int intro_int) begin
+
+#logo_background.set_load_size(used_screen_height, used_screen_width, 0);
+#logo_background.load();
+#logo_pic.add_part(logo_background, 0, 0);
+#logo_pic.set_background_color(0, 255, 255);
+
+#ANIMATION
+#maw.load();
+#logo_sound.set_attenuation(0.2);
+#logo_sound.set_loop_playback(true);
+#logo_sound.present();
+
+keeplogo_present();
+
+transitionflash_trial.present();
+	
+	statueborder_bg.set_load_size(used_screen_height, used_screen_width, 0);
+	statueborder_bg.load();
+	
+	logo_trial.set_type(fixed);
+	logo_trial.set_duration(1340);
+
+	logo_pic.clear();
+	logo_pic.add_part(statueborder_bg, 0, 0);
+	#logo_pic.add_part(backgrounds[bg_index], 0, 0);
+	logo_trial.present();
+	
+	#logo_pic.add_part(logo_background, 0, 0);
+	#logo_pic.add_part(perimeter_linebox, 0, 0);
+	#logo_pic.add_part(endselect_bgpolygon, 0, 0);**********************************eventually add logo!!!
+	logo_pic.add_part(endselect_box, 0, 0);
+	logo_trial.set_duration(1600);
+	logo_trial.present();
+
+int logo_duration;
+lang = load_language_file(scenario_directory + langfile_name + ".xml");
+if intro_int < 1 then
+	item_key = "Logo Start1";
+	logo_duration = 3400;
+else
+	item_key = "Logo Reg1";
+	logo_duration = 1800;
+end;
+
+	#item_key = "Training Start";#SET_VALUE - sets the key term to look for within the language file
+	#lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	training_text.set_transparent_color(0, 0, 0);
+	training_text.set_font_color(139, 0, 0);
+	training_text.redraw();
+	text_fill_percentage = 0.88;
+	full_size_word_wrap(lang_type, used_screen_height * 0.046, false, training_text);
+	logo_pic.add_part(training_text, 0, used_screen_height * 0.28);
+	logo_trial.set_duration(logo_duration);
+	logo_trial.present();
+	
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart2_text, 0, used_screen_height * 0.3);
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart3_text, 0, used_screen_height * 0.2);
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart4_text, 0, used_screen_height * 0.1);
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart5_text, 0, used_screen_height * 0.0);
+	#logo_trial.present();
+if intro_int < 1 then
+	item_key = "Logo Start2";
+	logo_duration = 2400;
+else
+	item_key = "Logo Reg2";
+	logo_duration = 1800;
+end;
+
+	#item_key = "Training Start";#SET_VALUE - sets the key term to look for within the language file
+	#lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	training2_text.set_transparent_color(0, 0, 0);
+	training2_text.set_font_color(139, 0, 0);
+	training2_text.redraw();
+	text_fill_percentage = 0.88;
+	full_size_word_wrap(lang_type, used_screen_height * 0.046, false, training2_text);
+	logo_pic.add_part(training2_text, 0, 0);
+	logo_trial.set_duration(logo_duration);
+	logo_trial.present();
+
+if intro_int < 1 then
+	item_key = "Logo Start3";
+else
+	item_key = "Logo Reg3";
+end;
+
+	#item_key = "Training Start";#SET_VALUE - sets the key term to look for within the language file
+	#lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	training3_text.set_transparent_color(0, 0, 0);
+	training3_text.set_font_color(139, 0, 0);
+	training3_text.redraw();
+	text_fill_percentage = 0.88;
+	full_size_word_wrap(lang_type, used_screen_height * 0.036, false, training3_text);
+	logo_pic.add_part(training3_text, 0, used_screen_height * 0.3 * (-1));
+	logo_trial.set_type(specific_response);
+	logo_trial.set_terminator_button(2);
+	logo_trial.set_duration(forever);
+	logo_trial.present();
+	
+	loop int i = 1 until i > 3 begin
+		logo_pic.remove_part(logo_pic.part_count());
+		i = i + 1;
+	end;
+	logo_trial.set_type(fixed);
+	logo_trial.set_duration(800);
+	logo_trial.present();
+	#logo_trial.set_duration(4000);
+
+#SET_VALUE - sets the key term to look for within the language file
+	#lang_type = get_lang_item(lang, item_key);
+	#training2_text.set_transparent_color(0, 0, 0);
+	#training2_text.set_font_color(139, 0, 0);
+	#training2_text.redraw();
+	#full_size_word_wrap(lang_type, used_screen_height * 0.03, false, training2_text);
+	#logo_pic.add_part(training2_text, 0, used_screen_height * 0.32 * (-1));
+	
+	#logo_trial.set_type(specific_response);
+	#logo_trial.set_terminator_button(2);
+	#logo_trial.set_duration(forever);
+	#logo_trial.set_duration(5000);
+	#transitionflash_trial.present();
+	#logo_trial.present();
+	#logo_pic.add_part(logo_touch_text, 0, used_screen_height * 0.36 * (-1));
+	#logo_trial.present();
+#end;
+
+maw.unload();
+backgrounds[bg_index].unload();
+statueborder_bg.unload();
+#end;
+#perimeter_linebox.set_line_color(255, 255, 255, 255);
+#perimeter_linebox.redraw();
+end;
+
+		# --- sub welcome_sizing ---
+		#Adapts welcom parts to the device's screen size
+sub welcome_sizing begin
+#backgrounds[7].set_load_size(used_screen_height, used_screen_width, 0);
+#backgrounds[7].load();
+
+firstwel_sessstart_text.set_font_size(used_screen_height * 0.062);
+firstwel_sessstart_text.set_width(used_screen_width * 0.9);
+firstwel_sessstart_text.set_max_text_width(used_screen_width * 0.9);
+firstwel_sessstart_text.redraw();
+laterwel_sessstart_text.set_font_size(used_screen_height * 0.062);
+laterwel_sessstart_text.set_width(used_screen_width * 0.9);
+laterwel_sessstart_text.set_max_text_width(used_screen_width * 0.9);
+laterwel_sessstart_text.redraw();
+be_sessstart_text.set_font_size(used_screen_height * 0.062);
+be_sessstart_text.set_width(used_screen_width * 0.9);
+be_sessstart_text.set_max_text_width(used_screen_width * 0.9);
+be_sessstart_text.redraw();
+wel_rem_text.set_font_size(used_screen_height * 0.06);
+wel_rem_text.redraw();
+wel_tips_text.set_font_size(used_screen_height * 0.07);
+wel_tips_text.redraw();
+wel_el_text.set_font_size(used_screen_height * 0.08);
+wel_el_text.redraw();
+wel_mi_text.set_font_size(used_screen_height * 0.08);
+wel_mi_text.redraw();
+wel_con_text.set_font_size(used_screen_height * 0.08);
+wel_con_text.redraw();
+
+logo_touch_text.set_font_size(used_screen_height * 0.028);
+logo_touch_text.redraw();
+
+#welcome_pic.set_background_color(255, 255, 255);
+#welcome_pic.add_part(backgrounds[7], 0, 0);
+end;
+
+		# --- Sub welcome_present ---
+		#plays the "concentrate" welcome sequence
+sub welcome_present (int intro_int) begin
+
+welcome_pic.add_part(backgrounds[7], 0, 0);
+#welcome_pic.add_part(perimeter_linebox, 0, 0);
+welcome_trial.set_duration(400);
+welcome_trial.present();
+
+lang = load_language_file(scenario_directory + langfile_name + ".xml");
+if intro_int < 1 then
+	#welcome_pic.set_background_color(255, 255, 255);
+	#welcome_pic.add_part(backgrounds[7], 0, 0);
+	#langfile_name = "zzzz0.training.start.English";#SET_VALUE - the name of the language file
+	#item_key = "Training Start";#SET_VALUE - sets the key term to look for within the language file
+	#language_file lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	#string lang_type = get_lang_item(lang, item_key);
+	#training_text.set_transparent_color(0, 0, 0);
+	#training_text.set_font_color(139, 0, 0);
+	#training_text.redraw();
+	#full_size_word_wrap(lang_type, used_screen_height * 0.2, false, training_text);
+	#welcome_pic.add_part(firstwel_sessstart_text, used_screen_width * 0.07, used_screen_height * 0.36);
+	#langfile_name = "zzzz0.training.start.English";#SET_VALUE - the name of the language file
+	item_key = "Welcome Start1";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel1_text.set_transparent_color(0, 0, 0);
+	wel1_text.set_font_color(253, 220, 11);
+	wel1_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.048, false, wel1_text);
+	welcome_pic.add_part(wel1_text, 0, 0);
+	welcome_trial.set_duration(2800);
+	welcome_trial.present();
+	
+	welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_trial.set_duration(500);
+	welcome_trial.present();
+	
+	item_key = "Welcome Start2";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel2_text.set_transparent_color(0, 0, 0);
+	wel2_text.set_font_color(253, 220, 11);
+	wel2_text.redraw();
+	text_fill_percentage = 0.92;
+	full_size_word_wrap(lang_type, used_screen_height * 0.04, false, wel2_text);
+	welcome_pic.add_part(wel2_text, 0, used_screen_height * 0.14);
+	welcome_trial.set_duration(10600);
+	welcome_trial.present();
+	
+	welcome_trial.set_type(specific_response);
+	welcome_trial.set_duration(forever);
+	welcome_trial.set_terminator_button(2);
+	item_key = "Welcome Start3";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel3_text.set_transparent_color(0, 0, 0);
+	wel3_text.set_font_color(253, 220, 11);
+	wel3_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.036, false, wel3_text);
+	welcome_pic.add_part(wel3_text, 0, used_screen_height * 0.3 * (-1));
+	welcome_trial.present();
+	
+	welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_trial.set_type(fixed);
+	welcome_trial.set_duration(260);
+	welcome_trial.present();
+	welcome_trial.set_duration(3200);
+	item_key = "Welcome Start4";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel4_text.set_transparent_color(0, 0, 0);
+	wel4_text.set_font_color(253, 220, 11);
+	wel4_text.redraw();
+	text_fill_percentage = 0.96;
+	full_size_word_wrap(lang_type, used_screen_height * 0.034, false, wel4_text);
+	welcome_pic.add_part(wel4_text, 0, 0);
+	welcome_trial.present();
+	welcome_pic.remove_part(welcome_pic.part_count());
+	
+	#welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_trial.set_duration(260);
+	welcome_trial.present();
+
+else
+	item_key = "Welcome Reg1";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel1_text.set_transparent_color(0, 0, 0);
+	wel1_text.set_font_color(253, 220, 11);
+	wel1_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.06, false, wel1_text);
+	welcome_pic.add_part(wel1_text, 0, 0);
+	welcome_trial.set_duration(2000);
+	welcome_trial.present();
+	
+	welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_trial.set_duration(260);
+	welcome_trial.present();
+	
+	#welcome_pic.remove_part(welcome_pic.part_count());
+	#welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_trial.set_type(fixed);
+	welcome_trial.set_duration(260);
+	welcome_trial.present();
+	welcome_trial.set_duration(1800);
+	item_key = "Welcome Reg2";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel4_text.set_transparent_color(0, 0, 0);
+	wel4_text.set_font_color(253, 220, 11);
+	wel4_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.08, false, wel4_text);
+	welcome_pic.add_part(wel4_text, 0, 0);
+	welcome_trial.present();
+	
+	welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_trial.set_duration(260);
+	welcome_trial.present();
+end;
+	
+	#welcome_pic.remove_part(welcome_pic.part_count());
+	#welcome_trial.set_duration(500);
+	#welcome_trial.present();
+	
+	item_key = "Welcome Start Focus";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel1_text.set_transparent_color(0, 0, 0);
+	wel1_text.set_font_color(253, 220, 11);
+	wel1_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.060, false, wel1_text);
+	
+	focus_bit.set_load_size(used_screen_height, used_screen_width, 0);
+	focus_bit.load();
+	welcome_pic.add_part(focus_bit, 0, 0);
+	welcome_trial.set_duration(400);
+	welcome_trial.present();
+	welcome_pic.add_part(wel1_text, 0, used_screen_height * 0.22);
+	welcome_trial.set_duration(800);
+	welcome_trial.present();
+	welcome_pic.remove_part(welcome_pic.part_count());
+	welcome_pic.remove_part(welcome_pic.part_count());
+
+	welcome_pic.add_part(wel1_text, 0, used_screen_height * 0.22);
+	welcome_trial.set_duration(1600);
+	welcome_trial.present();
+	
+	item_key = "Welcome Start Dist";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel2_text.set_transparent_color(0, 0, 0);
+	wel2_text.set_font_color(253, 220, 11);
+	wel2_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.04, false, wel2_text);
+	welcome_pic.add_part(wel2_text, 0, used_screen_height * 0.04 * (-1));
+	welcome_trial.set_duration(4000);
+	welcome_trial.present();
+	
+	welcome_trial.set_type(specific_response);
+	welcome_trial.set_duration(forever);
+	welcome_trial.set_terminator_button(2);
+	item_key = "Welcome Start Touch";#SET_VALUE - sets the key term to look for within the language file
+	lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	lang_type = get_lang_item(lang, item_key);
+	wel3_text.set_transparent_color(0, 0, 0);
+	wel3_text.set_font_color(253, 220, 11);
+	wel3_text.redraw();
+	text_fill_percentage = 0.9;
+	full_size_word_wrap(lang_type, used_screen_height * 0.04, false, wel3_text);
+	welcome_pic.add_part(wel3_text, 0, used_screen_height * 0.3 * (-1));
+	welcome_trial.present();
+	
+	welcome_pic.clear();
+	welcome_pic.add_part(backgrounds[7], 0, 0);
+	#welcome_pic.add_part(perimeter_linebox, 0, 0);
+	welcome_trial.set_type(fixed);
+	welcome_trial.set_duration(740);
+	welcome_trial.present();
+	
+	#langfile_name = "zzzz0.training.start.English";#SET_VALUE - the name of the language file
+	#item_key = "Training Start";#SET_VALUE - sets the key term to look for within the language file
+	#language_file lang = load_language_file(scenario_directory + langfile_name + ".xml");
+	#string lang_type = get_lang_item(lang, item_key);
+	#training_text.set_transparent_color(0, 0, 0);
+	#training_text.set_font_color(139, 0, 0);
+	#training_text.redraw();
+	#full_size_word_wrap(lang_type, 20, false, training_text);
+	#full_size_word_wrap(lang_type, used_screen_height * 0.2, false, training_text);
+	
+	#logo_pic.clear();
+	#welcome_pic.add_part(logo_background, 0, 0);
+	#welcome_pic.add_part(upper_node_text, used_screen_width * 0.3626 * (-1), used_screen_height * 0.28);
+	#welcome_pic.add_part(lower_node_text, used_screen_width * 0.3626 * (-1), used_screen_height * 0.24 * (-1));
+	#welcome_pic.add_part(logo_text, 0, 0);
+	#welcome_pic.add_part(top_line, used_screen_width * 0.426 * (-1), used_screen_height * 0.28);
+	#welcome_pic.insert_part(2, top_line, used_screen_width * 0.40 * (-1), used_screen_height * 0.28);
+	#welcome_pic.add_part(logo2_line, 0, 0);
+	#welcome_pic.add_part(logo3_line, 0, 0);
+	#welcome_pic.add_part(top_line, used_screen_width * 0.426 * (-1), used_screen_height * 0.28);
+
+	#welcome_pic.insert_part(2, logo2_line, 0, 0);
+	#welcome_pic.insert_part(2, logo3_line, 0, 0);
+
+	#welcome_pic.add_part(perimeter_linebox, 0, 0);
+	#welcome_pic.add_part(endselect_bgpolygon, 0, 0);
+	#welcome_pic.remove_part(4);
+	#welcome_pic.insert_part(4, o_text, used_screen_width * 0.145 * (-1), 0);
+	#welcome_pic.add_part(endselect_box, 0, 0);
+	#logo_pic.add_part(firstsessstart1_text, 0, used_screen_height * 0.4);
+	#logo_trial.set_duration(500);
+	#logo_trial.present();
+	#logo_trial.set_monitor_sounds(false);
+	#welcome_pic.add_part(endselect_box, 0, 0);
+	#logo_trial.set_duration(200);
+	#logo_trial.present();
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart2_text, 0, used_screen_height * 0.3);
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart3_text, 0, used_screen_height * 0.2);
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart4_text, 0, used_screen_height * 0.1);
+	#logo_trial.present();
+	#logo_pic.add_part(firstsessstart5_text, 0, used_screen_height * 0.0);
+	#logo_trial.present();
+	#transitionflash_trial.present();
+	#logo_trial.set_type(specific_response);
+	#logo_trial.set_terminator_button(2);
+	#logo_trial.set_duration(forever);
+	#logo_pic.add_part(training_text, 0, 0);
+	#logo_trial.set_duration(5000);
+	#logo_trial.present();
+	#full_size_word_wrap(lang_type, used_screen_height * 0.2, false, training_text);
+	#welcome_pic.add_part(wel1_text, 0, used_screen_height * 0.04);
+	#welcome_trial.set_duration(forever);
+	#welcome_trial.set_type(specific_response);
+	#welcome_trial.set_terminator_button(2);
+#else
+	#welcome_pic.add_part(laterwel_sessstart_text, used_screen_width * 0.08, used_screen_height * 0.36);
+#	welcome_pic.add_part(laterwel_sessstart_text, used_screen_width * 0.08 * (-1), used_screen_height * 0.36);
+#end;
+
+
+#welcome_pic.add_part(be_sessstart_text,used_screen_width * 0.16, used_screen_height * 0.26);
+#welcome_pic.add_part(be_sessstart_text,used_screen_width * 0.16 * (-1), used_screen_height * 0.26);
+#welcome_trial.set_type(fixed);
+#welcome_trial.set_duration(3000);
+#welcome_trial.present();
+
+#welcome_pic.add_part(wel_el_text, used_screen_width * 0.24, used_screen_height * 0.10);
+#welcome_pic.add_part(wel_el_text, 0, 0);
+#welcome_trial.set_duration(1200);
+#welcome_trial.present();
+#welcome_pic.remove_part(4);
+
+#welcome_pic.add_part(wel_mi_text, used_screen_width * 0.24, 0);
+#welcome_pic.add_part(wel_mi_text, 0, 0);
+#welcome_trial.present();
+#welcome_pic.remove_part(4);
+
+#welcome_pic.add_part(wel_con_text, used_screen_width * 0.24, used_screen_height * 0.10 * (-1));
+#welcome_pic.add_part(wel_con_text, 0, 0);
+#welcome_trial.set_duration(2200);
+#welcome_trial.present();
+
+#welcome_pic.add_part(logo_touch_text, 0, used_screen_height * 0.36 * (-1));
+#welcome_pic.present();
+#end;
+
+#int welcomeup_ct = response_manager.total_response_count(2);	
+		
+#loop until
+	#response_manager.total_response_count(2) > welcomeup_ct
+#	begin
+#end;
+
+#loop until response_manager.last_response() == 2 begin
+#end;
+
+backgrounds[7].unload();
+
+end;
+
+
+#--- sub get_exit_resp ---
+# asks the user if they wish to exit or skip logo - presented with button touch at beginning or end of game
+# played as part of seq with logowelcome_seq or get_menu_resp
+sub string get_exit_resp begin
+	string exit_decision;# "exit" or "stay"
+	#perform_sizingpic();
+		
+loop bool endexittouch = false until endexittouch == true begin	
+	int down_ct = response_manager.total_response_count(1);
+	int up_ct = response_manager.total_response_count(2);
+	
+menu_pic.add_part(endselect_bgpolygon, 0, 0);
+menu_pic.add_part(end_linebox, 0, used_screen_height * 0.01);
+menu_pic.add_part(endselect_linebox, exitbutton1_x, exitbutton_y);
+menu_pic.add_part(endselect_linebox, exitbutton2_x, exitbutton_y);
+menu_pic.add_part(endselect_text1, 0, used_screen_height * 0.12);
+menu_pic.add_part(endselect_text2, exitbutton1_x, exitbutton_y);
+menu_pic.add_part(endselect_text3, exitbutton2_x, exitbutton_y);
+menu_pic.add_part(endselecthighlight_polygon1, exitbutton1_x, exitbutton_y);
+menu_pic.add_part(endselecthighlight_polygon2, exitbutton2_x, exitbutton_y);
+menu_pic.present();
+
+#loop bool endexittouch = false until endexittouch == true begin	
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+ if ( x_touch < exitbutton1_x + (0.5 * exitbutton_width) ) && 
+	( x_touch > exitbutton1_x - (0.5 * exitbutton_width) ) &&
+	( y_touch < exitbutton_y + (0.5 * exitbutton_height)) &&
+	( y_touch > exitbutton_y - (0.5 * exitbutton_height)) then
+		endselecthighlight_polygon1.set_fill_color(255, 255, 255, 120);
+		endselecthighlight_polygon1.redraw();
+		menu_pic.present();
+		#button_click.present();
+		exit_decision = "exit";
+		endexittouch = true;
+		
+elseif ( x_touch > exitbutton2_x - (0.5 * exitbutton_width) ) && 
+	( x_touch < exitbutton2_x + (0.5 * exitbutton_width) ) &&
+	( y_touch < exitbutton_y + (0.5 * exitbutton_height)) &&
+	( y_touch > exitbutton_y - (0.5 * exitbutton_height)) then
+		endselecthighlight_polygon2.set_fill_color(255, 255, 255, 120);
+		endselecthighlight_polygon2.redraw();
+		menu_pic.present();
+		#button_click.present();
+		exit_decision = "stay";
+		endexittouch = true;
+	end;
+menu_trial.set_duration(400);
+menu_trial.present();
+menu_trial.set_duration(100);
+
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+
+#menu_trial.present();
+
+#if exit_decision == "stay" then
+	loop int x = 1 until x > 9 begin
+		menu_pic.remove_part(menu_pic.part_count());
+		x = x + 1;
+	end;
+#end;
+end;
+#menu_trial.present();
+endselecthighlight_polygon1.set_fill_color(255, 255, 255, 0);
+endselecthighlight_polygon1.redraw();
+endselecthighlight_polygon2.set_fill_color(255, 255, 255, 0);
+endselecthighlight_polygon2.redraw();
+return exit_decision;
+end;
+
+#---------------------------------------------------------------------------
+#--- sub run_logo ---
+# determines whether to run the get_exit_resp sub at beginning or end of game
+# adjusts parts then turns them back
+sub bool run_logo(int logo_index) begin
+	bool present_logo = false;
+	string exit_indicator;
+	if logo_index > 5 then
+		#change exit select colors and text
+	menu_pic.clear();
+	menu_pic.insert_part(1, logo_background, 0, 0);
+	menu_trial.set_duration(600);
+	menu_trial.present();
+	menu_trial.set_duration(100);
+	end_linebox.set_fill_color(130, 0, 0, 255);
+	end_linebox.set_line_color(255, 0, 0, 255);
+	#end_linebox.set_fill_color(255, 100, 100, 255);
+	#end_linebox.set_line_color(255, 50, 50, 255);
+	end_linebox.redraw();
+	endselect_linebox.set_fill_color(255, 100, 100, 0);
+	endselect_linebox.set_line_color(255, 50, 50, 255);
+	#endselect_linebox.set_fill_color(130, 0, 0, 255);
+	#endselect_linebox.set_line_color(255, 0, 0, 255);
+	endselect_linebox.redraw();
+	endselect_text1.set_font_color(0, 255, 255);
+	endselect_text1.set_caption("Skip Intro?");
+	endselect_text1.redraw();
+	endselect_text2.set_font_color(0, 255, 255);
+	endselect_text2.redraw();
+	endselect_text3.set_font_color(0, 255, 255);
+	endselect_text3.redraw();
+		
+		exit_indicator = get_exit_resp();
+		if exit_indicator == "exit" then
+			present_logo = true;
+		end;
+	end;
+menu_trial.set_duration(600);
+#menu_trial.present();
+	#end_linebox.set_fill_color(130, 0, 0, 255);
+#end_linebox.set_line_color(255, 0, 0, 255);
+end_linebox.set_fill_color(0, 0, 130, 255);
+end_linebox.set_line_color(0, 0, 255, 255);
+end_linebox.redraw();
+#endselect_linebox.set_fill_color(255, 100, 100, 0);
+#endselect_linebox.set_line_color(255, 50, 50, 255);
+endselect_linebox.set_fill_color(100, 100, 255, 255);
+endselect_linebox.set_line_color(50, 50, 255, 255);
+endselect_linebox.redraw();
+endselect_text1.set_font_color(255, 0, 0);
+endselect_text1.set_caption("Are you sure you want to\nend the session?");
+endselect_text1.redraw();
+endselect_text2.set_font_color(255, 0, 0);
+endselect_text2.redraw();
+endselect_text3.set_font_color(255, 0, 0);
+endselect_text3.redraw();
+menu_trial.set_duration(100);
+menu_pic.clear();
+	#turn colors and text back to original
+	return present_logo
+end;
+
+
+sub logowelcome_seq(double timing, int start_int) begin
+
+maw.load();
+backgrounds[bg_index].set_load_size(used_screen_height, used_screen_width, 0);
+backgrounds[bg_index].load();
+logo_pic.add_part(backgrounds[bg_index], 0, 0);
+#logo_pic.set_background_color(0, 255, 255);
+backgrounds[7].set_load_size(used_screen_height, used_screen_width, 0);
+backgrounds[7].load();
+
+langfile_name = "zzzz0.training.start.English";#SET_VALUE - the name of the language file
+lang = load_language_file(scenario_directory + langfile_name + ".xml");
+
+	if timing >= 30000 then
+		bool skip_logo = run_logo(start_int);
+		if skip_logo == false then
+			logo_sizing();
+			logo2_present(start_int);
+			transitionflash_trial.set_monitor_sounds(true);
+			transitionflash_trial.present();
+			welcome_sizing();
+			welcome_present(start_int);
+		end;
+	end;
+
+maw.unload();
+backgrounds[bg_index].unload();
+
+backgrounds[4].unload();
+backgrounds[7].unload();
+
+perimeter_linebox.set_line_color(255, 255, 255, 255);
+perimeter_linebox.redraw();
+
+end;
+
+
+		# --- sub full_finish ---
+		# the very last sequences used - new version
+sub full_finish begin
+#post_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+#post_pic.set_background_color(0, 255, 255);
+stimcodedata_trial.set_monitor_sounds(true);
+stimcodedata_trial.present();
+stimcodedata_trial.set_monitor_sounds(false);
+
+
+if addbgfile == true then
+	post_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+#post_pic.remove_part(1);
+postgame_trans_trial.set_duration(440);
+postgame_trans_trial.present();
+postgame_trans_trial.set_duration(4000);
+#post_pic.set_background_color(255, 100, 255);
+#post_pic.add_part(upper_node_text, used_screen_width * 0.3626 * (-1), used_screen_height * 0.28);
+#post_pic.add_part(o_text, used_screen_width * 0.145 * (-1), 0);
+#post_pic.add_part(lower_node_text, used_screen_width * 0.3626 * (-1), used_screen_height * 0.24 * (-1));
+#post_pic.add_part(top_line, used_screen_width * 0.426 * (-1), used_screen_height * 0.28);
+#post_pic.add_part(logo2_line, 0, 0);
+#post_pic.add_part(logo3_line, 0, 0);
+#perimeter_linebox.set_line_color(0, 0, 255, 255);
+#perimeter_linebox.redraw();
+
+#finish_text.set_font_color(200, 0, 0);
+finish_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][1], colors[fcolor_index][1]);
+
+#finish_text.set_background_color(0, 255, 255);
+#finish_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+#finish_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+finish_text.set_caption("Goodbye!");
+#finish_text.set_transparent_color(0, 0, 0);
+finish_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+finish_text.set_font_size(used_screen_height * 0.1);
+finish_text.redraw();
+#omega_bits[4].set_load_size(used_screen_width * 0.14, used_screen_height * 0.14, 0);
+#omega_bits[4].set_transparent_color(colors[fcolor_index][1], colors[fcolor_index][1], colors[fcolor_index][1]);
+#omega_bits[4].set_transparent_color(0, 255, 255);
+#omega_bits[4].load();
+
+post_pic.add_part(perimeter_linebox, 0, 0);
+post_pic.add_part(finish_text, 0, used_screen_height * 0.1044);
+#post_pic.add_part(omega_bits[4], 0, 0);
+
+postgame_trans_trial.present();
+post_pic.remove_part(1);
+end;
+
+		# --- sub marking_present ---
+		# presents a check or x depending on the outcome of a given trial
+		# *at this point only used in polkadot touch game
+sub marking_present(string mark) begin
+marking_pic.add_part(backgrounds[bg_index], 0, 0);
+marking_trial.set_duration(400);
+marking_trial.present();
+marking_trial.set_duration(900);
+	if mark == "correct" then
+		mark_annulus.set_color(0, 255, 0, 255);
+		mark_annulus.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][1], colors[tcolor_index][1]);
+		mark_annulus.redraw();
+		marking_pic.add_part(mark_annulus, 0, 0);
+		marking_pic.add_part(check_line, 0, 0);
+		ding_wav.load();
+		ding_sound.set_attenuation(0.14);
+		marking_trial.add_stimulus_event(ding_sound);
+		#marking_pic.add_part(mark_annulus, 0, 0);
+	elseif mark =="incorrect" then
+		mark_annulus.set_color(255, 0, 0, 255);
+		mark_annulus.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][1], colors[tcolor_index][1]);
+		mark_annulus.redraw();
+		marking_pic.add_part(mark_annulus, 0, 0);
+		marking_pic.add_part(x_line, 0, 0);
+	end;
+		marking_trial.present();
+		marking_pic.clear();
+		transitionflash_trial.present();
+
+	if mark == "correct" then
+		ding_wav.unload();
+		marking_trial.remove_stimulus_event(2);
+	end;
+end;
+
+		# --- sub topblock_present ---
+		# the presentation that happens when the highest score for a round is reached
+sub topblock_present begin
+
+menu_pic.clear();
+if addbgfile == true then
+	topblock_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+
+topblock_trial.set_duration(500);
+topblock_trial.present();
+	
+int sound_select = random(2, 4);
+	gameplay_sounds[sound_select].get_wavefile().load();
+	ding_sound.get_wavefile().load();
+	podium_bit.set_transparent_color(0, 0, 0);
+	podium_bit.set_load_size(used_screen_height * 0.5208, used_screen_width * 0.2928, 0);
+	podium_bit.load();
+	
+	topblock_pic.add_part(podium_bit, 0, used_screen_height * 0.1432 * (-1));
+	topblock_trial.add_stimulus_event(topblock_pic);
+	topblock_trial.add_stimulus_event(ding_sound);
+	topblock_trial.set_duration(900);
+	topblock_trial.present();
+	topblock_trial.remove_stimulus_event(2);
+	topblock_text.set_font_size(used_screen_height * 0.0885);
+	topblock_text.redraw();
+	topblock_pic.add_part(topblock_text, 0, used_screen_height * 0.2656);
+	topblock_trial.add_stimulus_event(gameplay_sounds[sound_select]);
+	topblock_trial.set_duration(2800);
+	topblock_trial.present();
+	topblock_trial.clear_stimulus_events();
+	ding_sound.get_wavefile().unload();
+	gameplay_sounds[sound_select].get_wavefile().unload();
+	podium_bit.unload();
+	topblock_pic.clear();
+end;		
+
+#---------------------------------------------------------------------------
+#STANDARD PARTS, MENU, INSTRUCTIONS and NUMBERS (extensive)
+	#----variables, size/pic adjustments and response subs for all standard pre and post game screens and info
+
+	#---- All the main subs that adjust sizes and pics for the menu sequence 
+		#- Variables for standard menu pic and menu functioning
+string diffselection = "Intermediate";
+int roundsselection = 10;
+bool endstartseq = false;
+
+double button1_coors_x = (used_screen_width * 0.5) * 0.40;
+double button1_coors_y = (used_screen_height * 0.5) * 0.175;
+array <double> button1_coors[4][2];
+
+double button2_coors_x = (used_screen_width * 0.5) * 0.36;
+double button2_coors_y = (used_screen_height * 0.5) * 0.115;
+array <double> button2_coors[4][2];
+
+double menubutton1_y = used_screen_height * 0.08;
+double menubutton2_y = used_screen_height * 0.14 * (-1);
+double menubutton3_y = used_screen_height * 0.32 * (-1);
+
+		#--- sub menucolor_adjust ---
+		#adjust colors for all menu parts - works for begining and end
+		#Builds the menu picture
+sub menucolor_adjust begin
+	menu_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	
+	menu_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	menu_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+	menu_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	menu_text.redraw();
+	button1_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	button1_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+	button1_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	button1_linebox.redraw();
+	startsess_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	startsess_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	startsess_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	startsess_text.redraw();
+
+	button2_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	button2_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+	button2_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	button2_linebox.redraw();
+	inst_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+	inst_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	inst_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	inst_text.redraw();
+
+	button3_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	button3_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+	button3_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	button3_linebox.redraw();
+	#scorestat_text.set_font_color(0, 0, 1);
+	scorestat_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+	scorestat_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scorestat_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scorestat_text.redraw();
+	
+	i_annulus.set_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	i_annulus.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+	i_annulus.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	i_annulus.redraw();
+
+	i_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	i_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+	i_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	i_text.redraw();
+end;
+
+		#--- sub menu_sizingpic ---
+		#sizes the parts for the menu screen BEFORE a game
+		#Builds the menu picture
+sub menu_sizingpic begin
+
+if device_description() == "LENOVO 20175" then
+	font_multiplier = 0.9;
+else
+	font_multiplier = 0.76;
+end;
+
+menu_text.set_font_size(used_screen_height * 0.188);
+menu_text.set_max_text_height(used_screen_height * 0.18);
+#menu_text.set_max_text_width(used_screen_height * 0.7);
+menu_text.redraw();
+#instdemo_text.set_font_size(used_screen_height * 0.09);
+#instdemo_text.redraw();
+
+loop int i = 1 until i > button1_coors.count() begin
+	button1_coors[i][1] = button1_coors_x;
+	button1_coors[i][2] = button1_coors_y;
+	if i == 1 || i == 4 then 
+		button1_coors[i][1] = button1_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		button1_coors[i][2] = button1_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+button1_linebox.add_polygon(button1_coors, false, 1, 0);
+button1_linebox.set_line_width(used_screen_height * 0.01);
+button1_linebox.redraw();
+button1_highlight.set_radius(button1_coors_x * 2.36);
+button1_highlight.set_size(button1_coors_x * 2.18, button1_coors_y * 2.36);
+button1_highlight.set_line_width(0);
+button1_highlight.redraw();
+#startsess_text.set_font_size(used_screen_height * 0.08);
+#startsess_text.set_max_text_height(used_screen_height * 0.17);
+#startsess_text.set_max_text_width(used_screen_height * 0.17);
+#startsess_text.set_font_size(button1_linebox.height() * 0.9);
+startsess_text.set_font_size(button1_linebox.height() * font_multiplier);
+startsess_text.set_max_text_height(button1_linebox.height() * 0.9);
+#startsess_text.set_max_text_width(button1_linebox.width() * 0.9);
+startsess_text.set_max_text_width(button1_linebox.width() * font_multiplier);
+
+startsess_text.redraw();
+
+loop int i = 1 until i > button2_coors.count() begin
+	button2_coors[i][1] = button2_coors_x;
+	button2_coors[i][2] = button2_coors_y;
+	if i == 1 || i == 4 then 
+		button2_coors[i][1] = button2_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		button2_coors[i][2] = button2_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+button2_linebox.add_polygon(button2_coors, false, 1, 0);
+button2_linebox.set_line_width(used_screen_height * 0.007);
+button2_linebox.redraw();
+button2_highlight.set_radius(button2_coors_x * 2.36);
+button2_highlight.set_size(button2_coors_x * 2.18, button2_coors_y * 2.36);
+button2_highlight.set_line_width(0);
+button2_highlight.redraw();
+#inst_text.set_font_size(used_screen_height * 0.074);
+inst_text.set_font_size(button2_linebox.height() * font_multiplier);
+inst_text.set_max_text_width(button2_linebox.width() * 0.9);
+inst_text.set_max_text_height(button2_linebox.height() * font_multiplier);
+inst_text.redraw();
+
+button3_linebox.add_polygon(button2_coors, false, 1, 0);
+button3_linebox.set_line_width(used_screen_height * 0.007);
+button3_linebox.redraw();
+button3_highlight.set_radius(button2_coors_x * 2.36);
+button3_highlight.set_size(button2_coors_x * 2.18, button2_coors_y * 2.36);
+button3_highlight.set_line_width(0);
+button3_highlight.redraw();
+#scorestat_text.set_font_size(used_screen_height * 0.070);
+scorestat_text.set_font_size(button3_linebox.height() * 0.9);
+scorestat_text.set_max_text_width(button3_linebox.width() * 0.9);
+scorestat_text.set_max_text_height(button3_linebox.height() * 0.9);
+scorestat_text.redraw();
+inst_text.redraw();
+
+i_annulus.set_color(255, 255, 255, 255);
+#i_annulus.set_dimensions(30, 40, 30, 40);
+#i_annulus.set_size(50, 50);
+i_annulus.set_dimensions(iannulus_in, iannulus_in, iannulus_out, iannulus_out);
+i_annulus.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+#i_annulus.set_size(iannulus_out, iannulus_out);
+i_annulus.redraw();
+i_text.set_font_size(itext_size);
+i_text.redraw();
+
+if coloradjust == true then
+	menucolor_adjust();
+end;
+
+
+menu_pic.clear();
+menu_trial.present();
+#menu_trial.set_duration(300);
+if addbgfile == true then
+	menu_pic.add_part(backgrounds[bg_index], 0, 0);
+end;
+menu_trial.present();
+#menu_trial.set_duration(100);
+#menu_pic.set_background_color(255, 255, 255);
+menu_pic.add_part(perimeter_linebox, 0, 0);
+menu_pic.add_part(menu_text, 0, used_screen_height * 0.39);
+menu_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+#menu_pic.add_part(button1_linebox, 0, menubutton1_y);
+menu_pic.add_part(startsess_text, 0, menubutton1_y);
+menu_pic.add_part(button1_linebox, 0, menubutton1_y);
+menu_pic.add_part(button1_highlight, 0, menubutton1_y);
+#menu_pic.add_part(button2_linebox, 0, menubutton2_y);
+menu_pic.add_part(inst_text, 0, menubutton2_y);
+menu_pic.add_part(button2_linebox, 0, menubutton2_y);
+menu_pic.add_part(button2_highlight, 0, menubutton2_y);
+menu_pic.add_part(button3_linebox, 0, menubutton3_y);
+menu_pic.add_part(scorestat_text, 0, menubutton3_y);
+menu_pic.add_part(button3_linebox, 0, menubutton3_y);
+menu_pic.add_part(button3_highlight, 0, menubutton3_y);
+
+if addmenuinfo == true then
+menu_pic.add_part(i_annulus, i_x, i_y);
+menu_pic.add_part(i_text, i_x, i_y);
+menu_pic.add_part(forwardback_highlight, i_x, i_y);
+end;
+
+end;
+
+		#--- sub menupartend_sizing ---
+		#sizes the parts for the menu screen AFTER a game
+		#Build's the menu_pic for the end
+sub menupartend_sizing begin
+menu_text.set_font_size(used_screen_height * 0.148);
+menu_text.set_max_text_height(used_screen_height * 0.148);
+menu_text.set_max_text_width(used_screen_width * 0.74);
+menu_text.set_caption("Great session!\nYou can look over your results or end the game");
+menu_text.redraw();
+
+#startsess_text.set_font_size(used_screen_height * 0.1);
+#startsess_text.set_max_text_height(used_screen_height * 0.1);
+startsess_text.set_font_size(button1_linebox.height() * 0.9);
+startsess_text.set_max_text_width(button1_linebox.width() * 0.9);
+startsess_text.set_max_text_height(button1_linebox.height() * 0.9);
+startsess_text.set_caption("Game Summary");
+startsess_text.redraw();
+
+#inst_text.set_font_size(used_screen_height * 0.09);
+#inst_text.set_max_text_height(used_screen_height * 0.09);
+inst_text.set_font_size(button2_linebox.height() * 0.9);
+inst_text.set_max_text_width(button2_linebox.width() * 0.9);
+inst_text.set_max_text_height(button2_linebox.height() * 0.9);
+inst_text.set_caption("Overall Summary");
+inst_text.redraw();
+
+#scorestat_text.set_font_size(used_screen_height * 0.09);
+#scorestat_text.set_max_text_height(used_screen_height * 0.09);
+scorestat_text.set_font_size(button2_linebox.height() * 0.9);
+scorestat_text.set_max_text_width(button2_linebox.width() * 0.9);
+scorestat_text.set_max_text_height(button2_linebox.height() * 0.9);
+scorestat_text.set_caption("End Game");
+scorestat_text.redraw();
+
+menu_pic.clear();
+menu_trial.present();
+menu_trial.set_duration(300);
+if addbgfile == true then
+	menu_pic.add_part(backgrounds[bg_index], 0, 0);
+end;
+menu_trial.present();
+menu_trial.set_duration(100);
+menu_pic.add_part(menu_text, 0, used_screen_height * 0.32);
+menu_pic.add_part(button1_linebox, 0, menubutton1_y);
+menu_pic.add_part(startsess_text, 0, menubutton1_y);
+menu_pic.add_part(button1_highlight, 0, menubutton1_y);
+menu_pic.add_part(button2_linebox, 0, menubutton2_y);
+menu_pic.add_part(inst_text, 0, menubutton2_y);
+menu_pic.add_part(button2_highlight, 0, menubutton2_y);
+menu_pic.add_part(button3_linebox, 0, menubutton3_y);
+menu_pic.add_part(scorestat_text, 0, menubutton3_y);
+menu_pic.add_part(button3_highlight, 0, menubutton3_y);
+
+if addmenuinfo == true then
+menu_pic.add_part(i_annulus, i_x, i_y);
+menu_pic.add_part(i_text, i_x, i_y);
+menu_pic.add_part(forwardback_highlight, i_x, i_y);
+end;
+
+end;
+
+		#--- sub get_menu_resp ---
+		#gets a touch of each standard menu button and returns
+		#a string indicator of which button was touched
+sub string get_menu_resp begin
+	string nextmenu;
+		
+loop bool endmenu  = false until endmenu == true begin	
+	int down_ct = response_manager.total_response_count(1);
+	int up_ct = response_manager.total_response_count(2);
+	
+	menu_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+ if ( x_touch < 0 + button1_coors_x ) && 
+	( x_touch > 0 - button1_coors_x ) &&
+	( y_touch < menubutton1_y + button1_coors_y) &&
+	( y_touch > menubutton1_y - button1_coors_y) then
+		button1_highlight.set_fill_color(100, 100, 200, 160);
+		button1_highlight.redraw();
+		menu_pic.present();
+		##button_click.present();
+		nextmenu = "button1";
+		endmenu = true;
+
+elseif ( x_touch < 0 + button2_coors_x) && 
+	( x_touch > 0 - button2_coors_x) &&
+	( y_touch < menubutton2_y + button2_coors_y) &&
+	( y_touch > menubutton2_y - button2_coors_y) then
+		button2_highlight.set_fill_color(100, 100, 200, 160);
+		button2_highlight.redraw();
+		menu_pic.present();
+		#button_click.present();
+		nextmenu = "button2";
+		endmenu = true;
+		
+elseif ( x_touch < 0 + button2_coors_x) && 
+	( x_touch > 0 - button2_coors_x) &&
+	( y_touch < menubutton3_y + button2_coors_y) &&
+	( y_touch > menubutton3_y - button2_coors_y) then
+		button3_highlight.set_fill_color(100, 100, 200, 160);
+		button3_highlight.redraw();
+		menu_pic.present();
+		#button_click.present();
+		nextmenu = "button3";
+		endmenu = true;
+#	end;
+	
+#if addmenuinfo == true then	
+	elseif ( x_touch < i_x + button2_coors_x) && 
+	( x_touch > i_x - button2_coors_x) &&
+	( y_touch < i_y + button2_coors_y) &&
+	( y_touch > i_y - button2_coors_y) &&
+		addmenuinfo == true then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		menu_pic.present();
+		nextmenu = "i";
+		endmenu = true;
+#end;
+end;
+
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+
+end;
+menu_trial.present();
+button1_highlight.set_fill_color(100, 100, 200, 0);
+button1_highlight.redraw();
+button2_highlight.set_fill_color(100, 100, 200, 0);
+button2_highlight.redraw();
+button3_highlight.set_fill_color(100, 100, 200, 0);
+button3_highlight.redraw();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+return nextmenu
+end;
+
+		#- Variables for difficulty parts
+double diffselect_coors_x = (used_screen_width * 0.5) * 0.4;
+double diffselect_coors_y = (used_screen_height * 0.5) * 0.14;
+array <double> diffselect_coors[4][2];
+
+double easy_y = used_screen_height * 0.06;
+double inter_y = used_screen_height * 0.16 * (-1);
+double hard_y = used_screen_height * 0.37 * (-1);
+
+		#--- sub diffpart_sizing ---   --- sub get_diff_resp ---
+		#sizes the parts for the difficulty screen and gets a difficulty reponse on that screen
+		#returns a string of which diff response was chosen
+		# *only used during the "long" version of the menu sequence
+sub diffpart_sizing begin
+
+if device_description() == "LENOVO 20175" then
+	font_multiplier = 0.8;
+else
+	font_multiplier = 0.6;
+end;
+
+diffselect_text.set_font_size(used_screen_height * 0.1);
+diffselect_text.set_max_text_height(used_screen_height * 0.1);
+diffselect_text.set_max_text_width(used_screen_width * 0.4);
+diffselect_text.redraw();
+
+loop int i = 1 until i > diffselect_coors.count() begin
+	diffselect_coors[i][1] = diffselect_coors_x;
+	diffselect_coors[i][2] = diffselect_coors_y;
+	if i == 1 || i == 4 then 
+		diffselect_coors[i][1] = diffselect_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		diffselect_coors[i][2] = diffselect_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+diffselect_linebox.add_polygon(diffselect_coors, false, 1, 0);
+diffselect_linebox.set_line_width(used_screen_height * 0.008);
+diffselect_linebox.redraw();
+diffselect1_highlight.set_radius(diffselect_coors_x * 2.36);
+diffselect1_highlight.set_size(diffselect_coors_x * 2.18, diffselect_coors_y * 2.36);
+diffselect1_highlight.set_line_width(0);
+diffselect1_highlight.redraw();
+
+diffselect2_highlight.set_radius(diffselect_coors_x * 2.36);
+diffselect2_highlight.set_size(diffselect_coors_x * 2.18, diffselect_coors_y * 2.36);
+diffselect2_highlight.set_line_width(0);
+diffselect2_highlight.redraw();
+
+diffselect3_highlight.set_radius(diffselect_coors_x * 2.36);
+diffselect3_highlight.set_size(diffselect_coors_x * 2.18, diffselect_coors_y * 2.36);
+diffselect3_highlight.set_line_width(0);
+diffselect3_highlight.redraw();
+
+#easyselect_text.set_font_size(used_screen_height * 0.05);
+easyselect_text.set_font_size(diffselect_linebox.height() * 0.8);
+easyselect_text.set_max_text_width(diffselect_linebox.width() * 0.94);
+easyselect_text.set_max_text_height(diffselect_linebox.height() * 0.8);
+easyselect_text.redraw();
+#interselect_text.set_font_size(used_screen_height * 0.05);
+interselect_text.set_font_size(diffselect_linebox.height() * font_multiplier);
+interselect_text.set_max_text_width(diffselect_linebox.width() * 0.9);
+interselect_text.set_max_text_height(diffselect_linebox.height() * font_multiplier);
+interselect_text.redraw();
+#hardselect_text.set_font_size(used_screen_height * 0.05);
+hardselect_text.set_font_size(diffselect_linebox.height() * 0.8);
+hardselect_text.set_max_text_width(diffselect_linebox.width() * 0.94);
+hardselect_text.set_max_text_height(diffselect_linebox.height() * 0.8);
+hardselect_text.redraw();
+
+if coloradjust == true then
+diff_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+
+diffselect_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+diffselect_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+diffselect_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+diffselect_linebox.redraw();
+
+diffselect_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+diffselect_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+diffselect_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+diffselect_text.redraw();
+
+easyselect_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+easyselect_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+easyselect_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+easyselect_text.redraw();
+
+interselect_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+interselect_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+interselect_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+interselect_text.redraw();
+
+hardselect_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+hardselect_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+hardselect_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+hardselect_text.redraw();
+end;
+
+if addbgfile == true then
+	diff_pic.add_part(backgrounds[bg_index], 0, 0);
+end;
+diff_pic.add_part(perimeter_linebox, 0, 0);
+diff_pic.add_part(sesstitle_text, 0, used_screen_height * 0.39);
+#diff_pic.add_part(sessnum_text, used_screen_width * 0.16, used_screen_height * 0.39);
+diff_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+diff_pic.add_part(diffselect_text, used_screen_width * 0.25 * (-1), used_screen_height * 0.21);
+
+diff_pic.add_part(diffselect_linebox, 0, easy_y);
+diff_pic.add_part(easyselect_text, 0, easy_y);
+diff_pic.add_part(diffselect1_highlight, 0, easy_y);
+
+diff_pic.add_part(diffselect_linebox, 0, inter_y);
+diff_pic.add_part(interselect_text, 0, inter_y);
+diff_pic.add_part(diffselect2_highlight, 0, inter_y);
+
+diff_pic.add_part(diffselect_linebox, 0, hard_y);
+diff_pic.add_part(hardselect_text, 0, hard_y);
+diff_pic.add_part(diffselect3_highlight, 0, hard_y);
+
+diff_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+diff_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+end;
+
+sub string get_diff_resp begin
+	string afterdiff;
+	diffpart_sizing();
+
+loop bool enddiff = false until enddiff == true begin
+int down_ct = response_manager.total_response_count(1);
+int up_ct = response_manager.total_response_count(2);
+	
+diff_pic.present();
+#display_device.screenshot("Screenshot.menu.diff.bmp");
+
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < 0 + diffselect_coors_x ) && 
+	( x_touch > 0 - diffselect_coors_x ) &&
+	( y_touch < easy_y + diffselect_coors_y) &&
+	( y_touch > easy_y - diffselect_coors_y) then
+		diffselect1_highlight.set_fill_color(100, 100, 200, 160);
+		diffselect1_highlight.redraw();
+		diff_pic.present();
+		#button_click.present();
+		x_touch = 0;
+		y_touch = 0;
+		diffselection = "EASY";
+		afterdiff = "forward";
+		enddiff = true;
+
+elseif ( x_touch < 0 + diffselect_coors_x ) && 
+	( x_touch > 0 - diffselect_coors_x ) &&
+	( y_touch < inter_y + diffselect_coors_y) &&
+	( y_touch > inter_y - diffselect_coors_y) then
+		diffselect2_highlight.set_fill_color(100, 100, 200, 160);
+		diffselect2_highlight.redraw();
+		diff_pic.present();
+		#button_click.present();
+		diffselection = "INTERMEDIATE";
+		afterdiff = "forward";
+		enddiff = true;
+
+elseif ( x_touch < 0 + diffselect_coors_x ) && 
+	( x_touch > 0 - diffselect_coors_x ) &&
+	( y_touch < hard_y + diffselect_coors_y) &&
+	( y_touch > hard_y - diffselect_coors_y) then
+		diffselect3_highlight.set_fill_color(100, 100, 200, 160);
+		diffselect3_highlight.redraw();
+		diff_pic.present();
+		#button_click.present();
+		diffselection = "HARD";
+		afterdiff = "forward";
+		enddiff = true;
+		
+elseif ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		diff_pic.present();
+		#button_click.present();
+		afterdiff = "back";
+		enddiff = true;
+end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+end;
+diff_trial.present();
+diffselect1_highlight.set_fill_color(100, 100, 200, 0);
+diffselect1_highlight.redraw();
+diffselect2_highlight.set_fill_color(100, 100, 200, 0);
+diffselect2_highlight.redraw();
+diffselect3_highlight.set_fill_color(100, 100, 200, 0);
+diffselect3_highlight.redraw();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+diff_trial.present();
+return afterdiff
+end;
+
+		#- Variables for rounds response
+int roundsnum1 = 1;
+int roundsnum2 = 2;
+int roundsnum3 = 3;
+int roundsnum4 = 4;
+
+double roundsselect_coors_x = (used_screen_width * 0.5) * 0.12;
+double roundsselect_coors_y = (used_screen_width * 0.5) * 0.12;
+array <double> roundsselect_coors[4][2];
+
+double roundsnum1_x = used_screen_width * 0.09 * (-1);
+double roundsnum1_y = 0;
+double roundsnum2_x = used_screen_width * 0.09;
+double roundsnum2_y = 0;
+double roundsnum3_x = used_screen_width * 0.09 * (-1);
+double roundsnum3_y = used_screen_height * 0.32 * (-1);
+double roundsnum4_x = used_screen_width * 0.09;
+double roundsnum4_y = used_screen_height * 0.32 * (-1);
+
+		#--- sub roundpart_sizing ---   --- sub get_rounds_resp ---
+		#sizes the parts for the rounds screen and gets a rounds reponse on that screen
+		#returns a string idicating which rounds response was chosen - can be used to move forward or back
+		# *won't necessarily be used in every game
+sub rounds_partsizing begin
+
+if device_description() == "LENOVO 20175" then
+	font_multiplier = 0.9;
+else
+	font_multiplier = 0.76;
+end;
+
+	roundsselect_text.set_font_size(used_screen_height * 0.078);
+	roundsselect_text.set_max_text_height(used_screen_height * 0.078);
+	roundsselect_text.set_max_text_width(used_screen_width * 0.40);
+	roundsselect_text.redraw();
+loop int i = 1 until i > roundsselect_coors.count() begin
+	roundsselect_coors[i][1] = roundsselect_coors_x;
+	roundsselect_coors[i][2] = roundsselect_coors_y;
+	if i == 1 || i == 4 then 
+		roundsselect_coors[i][1] = roundsselect_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		roundsselect_coors[i][2] = roundsselect_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+roundsselect_linebox.add_polygon(roundsselect_coors, false, 1, 0);
+roundsselect_linebox.set_line_width(used_screen_height * 0.006);
+roundsselect_linebox.redraw();
+
+roundsselect1_highlight.set_radius(roundsselect_coors_x * 2.36);
+roundsselect1_highlight.set_size(roundsselect_coors_x * 2.18, roundsselect_coors_y * 2.36);
+roundsselect1_highlight.set_line_width(0);
+roundsselect1_highlight.redraw();
+
+roundsselect2_highlight.set_radius(roundsselect_coors_x * 2.36);
+roundsselect2_highlight.set_size(roundsselect_coors_x * 2.18, roundsselect_coors_y * 2.36);
+roundsselect2_highlight.set_line_width(0);
+roundsselect2_highlight.redraw();
+
+roundsselect3_highlight.set_radius(roundsselect_coors_x * 2.36);
+roundsselect3_highlight.set_size(roundsselect_coors_x * 2.18, roundsselect_coors_y * 2.36);
+roundsselect3_highlight.set_line_width(0);
+roundsselect3_highlight.redraw();
+
+roundsselect4_highlight.set_radius(roundsselect_coors_x * 2.36);
+roundsselect4_highlight.set_size(roundsselect_coors_x * 2.18, roundsselect_coors_y * 2.36);
+roundsselect4_highlight.set_line_width(0);
+roundsselect4_highlight.redraw();
+
+#roundsnum1_text.set_font_size(used_screen_height * 0.12);
+roundsnum1_text.set_font_size(roundsselect_linebox.height() * 0.72);
+roundsnum1_text.set_max_text_width(roundsselect_linebox.width() * 0.9);
+roundsnum1_text.set_max_text_height(roundsselect_linebox.height() * 0.72);
+roundsnum1_text.set_caption(string(roundsnum1));
+roundsnum1_text.redraw();
+
+#roundsnum2_text.set_font_size(used_screen_height * 0.12);
+roundsnum2_text.set_font_size(roundsselect_linebox.height() * 0.72);
+roundsnum2_text.set_max_text_width(roundsselect_linebox.width() * 0.9);
+roundsnum2_text.set_max_text_height(roundsselect_linebox.height() * 0.72);
+roundsnum2_text.set_caption(string(roundsnum2));
+roundsnum2_text.redraw();
+
+#roundsnum3_text.set_font_size(used_screen_height * 0.12);
+roundsnum3_text.set_font_size(roundsselect_linebox.height() * 0.72);
+roundsnum3_text.set_max_text_width(roundsselect_linebox.width() * 0.9);
+roundsnum3_text.set_max_text_height(roundsselect_linebox.height() * 0.72);
+roundsnum3_text.set_caption(string(roundsnum3));
+roundsnum3_text.redraw();
+
+#roundsnum4_text.set_font_size(used_screen_height * 0.12);
+roundsnum4_text.set_font_size(roundsselect_linebox.height() * 0.72);
+roundsnum4_text.set_max_text_width(roundsselect_linebox.width() * 0.9);
+roundsnum4_text.set_max_text_height(roundsselect_linebox.height() * 0.72);
+roundsnum4_text.set_caption(string(roundsnum4));
+roundsnum4_text.redraw();
+
+if coloradjust == true then
+rounds_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+
+roundsselect_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+roundsselect_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+roundsselect_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+roundsselect_linebox.redraw();
+
+roundsselect_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+roundsselect_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+roundsselect_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+roundsselect_text.redraw();
+
+roundsnum1_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+roundsnum1_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+roundsnum1_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+roundsnum1_text.redraw();
+
+roundsnum2_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+roundsnum2_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+roundsnum2_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+roundsnum2_text.redraw();
+
+roundsnum3_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+roundsnum3_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+roundsnum3_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+roundsnum3_text.redraw();
+
+roundsnum4_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+roundsnum4_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+roundsnum4_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+roundsnum4_text.redraw();
+end;
+
+#backgrounds[bg_index].load();
+if addbgfile == true then
+rounds_pic.add_part(backgrounds[bg_index], 0, 0);
+end;
+rounds_pic.add_part(perimeter_linebox, 0, 0);
+rounds_pic.add_part(sesstitle_text, 0, used_screen_height * 0.39);
+#rounds_pic.add_part(sessnum_text, used_screen_width * 0.16, used_screen_height * 0.39);
+rounds_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+rounds_pic.add_part(roundsselect_text, used_screen_width * 0.25 * (-1), used_screen_height * 0.21);
+
+rounds_pic.add_part(roundsselect_linebox, roundsnum1_x, roundsnum1_y);
+rounds_pic.add_part(roundsnum1_text, roundsnum1_x, roundsnum1_y);
+rounds_pic.add_part(roundsselect1_highlight, roundsnum1_x, roundsnum1_y);
+
+rounds_pic.add_part(roundsselect_linebox, roundsnum2_x, roundsnum2_y);
+rounds_pic.add_part(roundsnum2_text, roundsnum2_x, roundsnum2_y);
+rounds_pic.add_part(roundsselect2_highlight, roundsnum2_x, roundsnum2_y);
+
+rounds_pic.add_part(roundsselect_linebox, roundsnum3_x, roundsnum3_y);
+rounds_pic.add_part(roundsnum3_text, roundsnum3_x, roundsnum3_y);
+rounds_pic.add_part(roundsselect3_highlight, roundsnum3_x, roundsnum3_y);
+
+rounds_pic.add_part(roundsselect_linebox, roundsnum4_x, roundsnum4_y);
+rounds_pic.add_part(roundsnum4_text, roundsnum4_x, roundsnum4_y);
+rounds_pic.add_part(roundsselect4_highlight, roundsnum4_x, roundsnum4_y);
+
+rounds_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+rounds_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+end;
+
+sub string get_rounds_resp begin
+	string nextrounds;
+	rounds_partsizing();
+loop bool endrounds  = false until endrounds == true begin
+int down_ct = response_manager.total_response_count(1);
+int up_ct = response_manager.total_response_count(2);
+	
+rounds_pic.present();
+#display_device.screenshot("Screenshot.menu.rounds.bmp");
+
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < roundsnum1_x + roundsselect_coors_x ) && 
+	( x_touch > roundsnum1_x - roundsselect_coors_x ) &&
+	( y_touch < roundsnum1_y + roundsselect_coors_y) &&
+	( y_touch > roundsnum1_y - roundsselect_coors_y) then
+		roundsselect1_highlight.set_fill_color(100, 100, 200, 160);
+		roundsselect1_highlight.redraw();
+		rounds_pic.present();
+		#button_click.present();
+		roundsselection = roundsnum1;
+		nextrounds = "forward";
+		endrounds = true;
+
+elseif ( x_touch < roundsnum2_x + roundsselect_coors_x ) && 
+	( x_touch > roundsnum2_x - roundsselect_coors_x ) &&
+	( y_touch < roundsnum2_y + roundsselect_coors_y) &&
+	( y_touch > roundsnum2_y - roundsselect_coors_y) then
+		roundsselect2_highlight.set_fill_color(100, 100, 200, 160);
+		roundsselect2_highlight.redraw();
+		rounds_pic.present();
+		#button_click.present();
+		roundsselection = roundsnum2;
+		nextrounds = "forward";
+		endrounds = true;
+
+elseif ( x_touch < roundsnum3_x + roundsselect_coors_x ) && 
+	( x_touch > roundsnum3_x - roundsselect_coors_x ) &&
+	( y_touch < roundsnum3_y + roundsselect_coors_y) &&
+	( y_touch > roundsnum3_y - roundsselect_coors_y) then
+		roundsselect3_highlight.set_fill_color(100, 100, 200, 160);
+		roundsselect3_highlight.redraw();
+		rounds_pic.present();
+		#button_click.present();
+		roundsselection = roundsnum3;
+		nextrounds = "forward";
+		endrounds = true;
+
+elseif ( x_touch < roundsnum4_x + roundsselect_coors_x ) && 
+	( x_touch > roundsnum4_x - roundsselect_coors_x ) &&
+	( y_touch < roundsnum4_y + roundsselect_coors_y) &&
+	( y_touch > roundsnum4_y - roundsselect_coors_y) then
+		roundsselect4_highlight.set_fill_color(100, 100, 200, 160);
+		roundsselect4_highlight.redraw();
+		rounds_pic.present();
+		#button_click.present();
+		roundsselection = roundsnum4;
+		nextrounds = "forward";
+		endrounds = true;
+		
+elseif ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		rounds_pic.present();
+		#button_click.present();
+		nextrounds = "back";
+		endrounds = true;
+
+end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+end;
+rounds_pic.present();
+rounds_trial.present();
+roundsselect1_highlight.set_fill_color(100, 100, 200, 0);
+roundsselect1_highlight.redraw();
+roundsselect2_highlight.set_fill_color(100, 100, 200, 0);
+roundsselect2_highlight.redraw();
+roundsselect3_highlight.set_fill_color(100, 100, 200, 0);
+roundsselect3_highlight.redraw();
+roundsselect4_highlight.set_fill_color(100, 100, 200, 0);
+roundsselect4_highlight.redraw();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+return nextrounds
+end;	
+
+		#--- getinfo_resp ---
+		#sizes the one info part (info_text)
+		#diplays info - note, info text must be manipulated in specific scenarios
+string info_string;
+sub getinfo_resp begin
+
+back_arrow.set_color(0, 0, 0, 255);
+back_arrow.redraw();
+
+if addbgfile == true then
+info_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+info_pic.add_part(nk_bit, used_screen_width * 0.2, used_screen_height * 0.26 * (-1));
+info_pic.add_part(info_text, 0, used_screen_height * 0.16);
+info_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+info_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+
+loop bool endinst = false until endinst == true begin
+int down_ct = response_manager.total_response_count(1);
+int up_ct = response_manager.total_response_count(2);
+	
+info_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		info_pic.present();
+		#button_click.present();
+		endinst = true;
+end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+end;
+info_trial.set_duration(300);
+info_trial.present();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+back_arrow.set_color(255, 255, 255, 255);
+back_arrow.redraw();	
+end;
+
+
+		#- Variables used in confirm response
+double confirmselup_coors_x = (used_screen_width * 0.5) * 0.90;
+
+double confirmsel_coors_x = (used_screen_width * 0.5) * 0.26;
+double confirmsel_coors_y = (used_screen_width * 0.5) * 0.16;
+array <double> confirmsel_coors[4][2];
+
+double conyes_x = used_screen_width * 0.17 * (-1);
+double conyes_y = used_screen_height * 0.28 * (-1);
+
+double conno_x = used_screen_width * 0.17;
+
+		#--- sub confirmpart_sizing ---   --- sub get_confirm_resp ---
+		#sizes the parts for the confirm screen and gets a confirm reponse on that screen
+		# *only used during the "long" version of the menu sequence
+sub confirmpart_sizing begin
+
+if device_description() == "LENOVO 20175" then
+	font_multiplier = 0.6;
+else
+	font_multiplier = 0.64;
+end;
+
+#conup_line.add_line(confirmselup_coors_x, 0, confirmselup_coors_x * (-1), 0);
+conup_line.add_line(confirmselup_coors_x * 0.9, 0, confirmselup_coors_x * (-1) * 0.9, 0);
+conup_line.set_line_width(used_screen_height * 0.006);
+conup_line.redraw();
+
+condiff_text.set_font_size(used_screen_height * 0.038);
+condiff_text.redraw();
+
+condiff_line.add_line(used_screen_width * 0.09 * (-1), 0, used_screen_width * 0.09, 0);
+condiff_line.set_line_width(used_screen_height * 0.002);
+condiff_line.redraw();
+
+conrounds_text.set_font_size(used_screen_height * 0.038);
+conrounds_text.redraw();
+
+conroundssel_text.set_font_size(used_screen_height * 0.038);
+conroundssel_text.set_caption(string(roundsselection));
+conroundssel_text.redraw();
+
+conrounds_line.add_line(used_screen_width * 0.04 * (-1), 0, used_screen_width * 0.04, 0);
+conrounds_line.set_line_width(used_screen_height * 0.002);
+conrounds_line.redraw();
+
+concon_text.set_font_size(used_screen_height * 0.054);
+#concon_text.set_font_size(roundsselect_linebox.height());
+#concon_text.set_width(roundsselect_linebox.width());
+#concon_text.set_height(roundsselect_linebox.height());
+concon_text.redraw();
+
+loop int i = 1 until i > confirmsel_coors.count() begin
+	confirmsel_coors[i][1] = confirmsel_coors_x;
+	confirmsel_coors[i][2] = confirmsel_coors_y;
+	if i == 1 || i == 4 then 
+		confirmsel_coors[i][1] = confirmsel_coors_x * (-1);
+	end;
+	if i == 3 || i == 4 then
+		confirmsel_coors[i][2] = confirmsel_coors_y * (-1);
+	end;
+	i = i + 1;
+end;
+con_linebox.add_polygon(confirmsel_coors, false, 1, 0);
+con_linebox.set_line_width(used_screen_height * 0.01);
+con_linebox.redraw();
+
+#conyes_text.set_font_size(used_screen_height * 0.04);
+conyes_text.set_font_size(con_linebox.height() * 0.12);
+conyes_text.set_width(con_linebox.width() * 0.9);
+conyes_text.set_height(con_linebox.height() * font_multiplier);
+conyes_text.redraw();
+
+#conno_text.set_font_size(used_screen_height * 0.04);
+conno_text.set_font_size(con_linebox.height() * 0.12);
+conno_text.set_width(con_linebox.width() * 0.9);
+conno_text.set_height(con_linebox.height() * font_multiplier);
+conno_text.redraw();
+
+con1_highlight.set_radius(confirmsel_coors_x * 2.36);
+con1_highlight.set_size(confirmsel_coors_x * 2.18, confirmsel_coors_y * 2.36);
+con1_highlight.set_line_width(0);
+con1_highlight.redraw();
+
+con2_highlight.set_radius(confirmsel_coors_x * 2.36);
+con2_highlight.set_size(confirmsel_coors_x * 2.18, confirmsel_coors_y * 2.36);
+con2_highlight.set_line_width(0);
+con2_highlight.redraw();
+
+if coloradjust == true then
+confirm_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+
+conup_line.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+conup_line.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+conup_line.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+conup_line.redraw();
+
+condiff_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+condiff_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+condiff_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+condiff_text.redraw();
+
+condiffsel_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+condiffsel_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+condiffsel_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+condiffsel_text.redraw();
+
+condiff_line.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+condiff_line.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+condiff_line.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+condiff_line.redraw();
+
+con_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+con_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+con_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+con_linebox.redraw();
+
+conrounds_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+conrounds_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+conrounds_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+conrounds_text.redraw();
+
+conroundssel_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+conroundssel_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+conroundssel_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+conroundssel_text.redraw();
+
+conrounds_line.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+conrounds_line.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+conrounds_line.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+conrounds_line.redraw();
+
+concon_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+concon_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+concon_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+concon_text.redraw();
+
+conyes_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+conyes_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+conyes_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+conyes_text.redraw();
+
+conno_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+conno_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+conno_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+conno_text.redraw();
+end;
+
+
+#backgrounds[bg_index].load();
+if addbgfile == true then
+confirm_pic.add_part(backgrounds[bg_index], 0, 0);
+end;
+confirm_pic.add_part(perimeter_linebox, 0, 0);
+confirm_pic.add_part(sesstitle_text, 0, used_screen_height * 0.39);
+#confirm_pic.add_part(sessnum_text, used_screen_width * 0.16, used_screen_height * 0.39);
+confirm_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+
+confirm_pic.add_part(condiff_text, used_screen_width * 0.1 * (-1), used_screen_height * 0.21);
+confirm_pic.add_part(condiff_line, used_screen_width * 0.1, used_screen_height * 0.18);
+confirm_pic.add_part(condiffsel_text, used_screen_width * 0.1, used_screen_height * 0.21);
+
+confirm_pic.add_part(conrounds_text, used_screen_width * 0.1 * (-1), used_screen_height * 0.11);
+confirm_pic.add_part(conrounds_line, used_screen_width * 0.1, used_screen_height * 0.08);
+confirm_pic.add_part(conroundssel_text, used_screen_width * 0.1, used_screen_height * 0.11);
+
+confirm_pic.add_part(concon_text,  0, used_screen_height * 0.04 * (-1));
+confirm_pic.add_part(conyes_text, conyes_x, conyes_y);
+confirm_pic.add_part(con_linebox, conyes_x, conyes_y);
+confirm_pic.add_part(con1_highlight, conyes_x, conyes_y);
+
+confirm_pic.add_part(conno_text, used_screen_width * 0.17, conyes_y);
+confirm_pic.add_part(con_linebox, used_screen_width * 0.17, conyes_y);
+confirm_pic.add_part(con2_highlight, used_screen_width * 0.17, conyes_y);
+end;
+
+
+sub string get_confirm_resp begin
+	string nextconfirm;
+	confirmpart_sizing();
+if diffselection != "INTERMEDIATE" then
+	condiffsel_text.set_font_size(used_screen_height * 0.037);
+end;
+if diffselection == "INTERMEDIATE" then
+	condiffsel_text.set_font_size(used_screen_height * 0.03);
+end;
+condiffsel_text.set_caption(diffselection);
+condiffsel_text.redraw();
+
+conroundssel_text.set_caption(string(roundsselection));
+conroundssel_text.redraw();
+
+loop bool endconfirm  = false until endconfirm == true begin	
+	int down_ct = response_manager.total_response_count(1);
+	int up_ct = response_manager.total_response_count(2);
+	
+	confirm_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+ if ( x_touch < conyes_x + confirmsel_coors_x ) && 
+	( x_touch > conyes_x - confirmsel_coors_x ) &&
+	( y_touch < conyes_y + confirmsel_coors_y) &&
+	( y_touch > conyes_y - confirmsel_coors_y) then
+		con1_highlight.set_fill_color(100, 100, 200, 160);
+		con1_highlight.redraw();
+		confirm_pic.present();
+		#button_click.present();
+		nextconfirm = "forward";
+		endconfirm = true;
+		endstartseq = true;
+
+elseif ( x_touch < conno_x + confirmsel_coors_x) && 
+	( x_touch > conno_x - confirmsel_coors_x) &&
+	( y_touch < conyes_y + confirmsel_coors_y) &&
+	( y_touch > conyes_y - confirmsel_coors_y) then
+		con2_highlight.set_fill_color(100, 100, 200, 160);
+		con2_highlight.redraw();
+		confirm_pic.present();
+		#button_click.present();
+		nextconfirm = "back";
+		endconfirm = true;
+	end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+end;
+confirm_pic.present();
+confirm_trial.present();
+con1_highlight.set_fill_color(100, 100, 200, 0);
+con1_highlight.redraw();
+con2_highlight.set_fill_color(100, 100, 200, 0);
+con2_highlight.redraw();
+return nextconfirm
+end;
+
+		#- Variables for instructions (important variables section)
+array<picture_part> inst_parts[0];# used to create an array of pic parts to be used in inst
+array<int> inst_part_count[0];# ends up being a 1d array with 2 elements; i) number of inst pic on left and
+										# ii)number of inst pic on right - must add these 2 numbers manually - differes for each sce
+#array<int> inst_locs[0][0];# ends up being a 2d array of x and y coors for each part
+array<double> inst_locs[0][0];# ends up being a 2d array of x and y coors for each part
+
+		# --- sub instructions(string to determine pic or written inst)
+		#Presents instructions in either picture form or written (specified by the string insttype below "pic" or "written")
+		#insttype, langfile_name and item_key string variables declared at beginning
+sub instructions (string typeinst) begin
+	instruction_pic.clear();
+if typeinst == "pic" then
+	if addbgfile == true then
+		instruction_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+	end;
+	instruction_pic.add_part(instruction_text, 0, used_screen_height * 0.7644 * 0.5);
+	instruction_pic.add_part(inst_divide, 0, used_screen_height * 0.08 * (-1) * 0.5);
+	instruction_pic.add_part(inst_screen, used_screen_width * 0.408 * (-1) * 0.5, used_screen_height * 0.2045 * (-1) * 0.5);
+	instruction_pic.add_part(inst_screen, used_screen_width * 0.408 * 0.5, used_screen_height * 0.2045 * (-1) * 0.5);
+	instruction_trial.present();
+	int current_part = 1;
+	loop int i = 1 until i > inst_part_count.count() begin
+		loop int j = 1 until j > inst_part_count[i] begin
+			instruction_pic.add_part(inst_parts[current_part], inst_locs[current_part][1], inst_locs[current_part][2]);
+			j = j + 1;
+			current_part = current_part + 1;
+		end;
+		instruction_trial.present();
+		i = i + 1;
+	end;
+
+instruction_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+instruction_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+
+loop bool endinst = false until endinst == true begin
+int down_ct = response_manager.total_response_count(1);
+int up_ct = response_manager.total_response_count(2);
+	
+instruction_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		instruction_pic.present();
+		#button_click.present();
+		endinst = true;
+end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+end;
+instruction_trial.set_duration(100);
+instruction_trial.present();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+instruction_trial.set_duration(1600);
+
+elseif typeinst == "written" then
+#language_file lang = load_language_file(scenario_directory + "ThinkBack.English.xml");
+lang = load_language_file(scenario_directory + langfile_name + ".xml");
+lang_type = get_lang_item(lang, item_key);
+#instruct_text.set_font_color(255, 255, 255);
+#full_size_word_wrap( lang_type, 20, false, instruct_text );
+
+if coloradjust == true then
+instruct_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+instruct_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+instruct_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+instruct_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+end;
+
+full_size_word_wrap(lang_type, 20, false, instruct_text);
+
+instruct_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+instruct_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+
+instruct_pic.present();
+
+loop bool endinst = false until endinst == true begin
+int down_ct = response_manager.total_response_count(1);
+int up_ct = response_manager.total_response_count(2);
+	
+instruct_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		instruct_pic.present();
+		#button_click.present();
+		endinst = true;
+end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+instruct_trial.present();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+end;
+end;
+end;
+
+		#- Variables for perform (menu) pic/responses
+double performbutton1_y = used_screen_height * 0.10;
+double performbutton2_y = used_screen_height * 0.16 * (-1);
+
+		#--- sub perform_sizingpic ---   --- sub get_perform_resp ---
+		#sizes the parts for the performance (menu) screen and gets a touch reponse on that screen
+sub perform_sizingpic begin
+performance_text.set_font_size(used_screen_height * 0.118);
+performance_text.set_max_text_width(menu_line.width() - (0.1 * menu_line.width()));
+performance_text.set_max_text_height(button3_linebox.height() + (button3_linebox.height() * 0.01));
+performance_text.redraw();
+scoremenu_text.set_font_size(used_screen_height * 0.118);
+scoremenu_text.set_max_text_width(button3_linebox.width() - (0.1 * button3_linebox.width()));
+scoremenu_text.set_max_text_height(button3_linebox.height() - (button3_linebox.height() * 0.26));
+scoremenu_text.redraw();
+stat_text.set_font_size(used_screen_height * 0.118);
+stat_text.set_max_text_width(button3_linebox.width() - (0.1 * button3_linebox.width()));
+stat_text.set_max_text_height(button3_linebox.height() - (button3_linebox.height() * 0.26));
+stat_text.redraw();
+
+if coloradjust == true then
+perform_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+
+performance_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+performance_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+performance_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+performance_text.redraw();
+
+scoremenu_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+scoremenu_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+scoremenu_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+scoremenu_text.redraw();
+
+stat_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+stat_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+stat_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+stat_text.redraw();
+end;
+
+if addbgfile == true then
+perform_pic.add_part(backgrounds[bg_index], 0, 0);
+end;
+
+perform_pic.add_part(perimeter_linebox, 0, 0);
+perform_pic.add_part(performance_text, 0, used_screen_height * 0.39);
+perform_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+
+perform_pic.add_part(scoremenu_text, 0, performbutton1_y);
+perform_pic.add_part(button2_linebox, 0, performbutton1_y);
+perform_pic.add_part(button2_highlight, 0, performbutton1_y);
+
+perform_pic.add_part(stat_text, 0, performbutton2_y);
+perform_pic.add_part(button3_highlight, 0, performbutton2_y);
+perform_pic.add_part(button3_linebox, 0, performbutton2_y);
+
+perform_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+perform_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+
+end;
+
+
+sub string get_perform_resp begin
+	string performtype;
+	perform_sizingpic();
+		
+loop bool endmenu  = false until endmenu == true begin	
+	int down_ct = response_manager.total_response_count(1);
+	int up_ct = response_manager.total_response_count(2);
+	
+	perform_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+ if ( x_touch < 0 + button2_coors_x ) && 
+	( x_touch > 0 - button2_coors_x ) &&
+	( y_touch < performbutton1_y + button2_coors_y) &&
+	( y_touch > performbutton1_y - button2_coors_y) then
+		button2_highlight.set_fill_color(100, 100, 200, 160);
+		button2_highlight.redraw();
+		perform_pic.present();
+		#button_click.present();
+		performtype = "scores";
+		endmenu = true;
+
+elseif ( x_touch < 0 + button2_coors_x) && 
+	( x_touch > 0 - button2_coors_x) &&
+	( y_touch < performbutton2_y + button2_coors_y) &&
+	( y_touch > performbutton2_y - button2_coors_y) then
+		button3_highlight.set_fill_color(100, 100, 200, 160);
+		button3_highlight.redraw();
+		perform_pic.present();
+		#button_click.present();
+		performtype = "stats";
+		endmenu = true;
+		
+elseif ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		perform_pic.present();
+		#button_click.present();
+		performtype = "back";
+		endmenu = true;
+	end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+
+end;
+perform_trial.present();
+button2_highlight.set_fill_color(100, 100, 200, 0);
+button2_highlight.redraw();
+button3_highlight.set_fill_color(100, 100, 200, 0);
+button3_highlight.redraw();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+return performtype
+end;
+
+	#---- Stats variables and subs
+		#*stats is a complicated part of game building - very careful attention needs to be paid to this aspect of game building
+		#- Standard summ stat variables are intentionally kept small (only 2 - gametrial_number and numroundstotal)
+		#each game/sce will have to add to these
+
+string summorgamestat; #string argument variable used in get_stats_resp sub - tells whether to display summ or game stats
+
+	#---- Stat SUMM variables
+int statitem_index = 8; # denotes the number of stats / objects / text items to appear on the screen that are used to make the grid
+int numstatrows = 8; # number of rows to be used on the SUMM layout
+int numstatcolumns = 1; # number of columns to be used on the SUMM layout
+
+		#below is the string array with the stat labels - this will have to be added to with each game
+		#use the .add array function and write the string for each additional stat in the scenario
+		#example stattype.add("Highest Score");
+array<string> stattype[8] = {"Total Number of Games Played", "Total Number of Rounds Played", "Overall Number of Correct Rounds",
+"Overall Number of Incorrect Rounds", "Highest Level Completed", "Highest Score for a Round", "Highest Score for a Game",
+"Avg Response Time per Round"};
+		
+		# --- sub statnumber_varadd ---
+		#below is the string array with the actual numbers for each summ stat - this will have to be added to with each game
+		# first run the "statnumber_varadd" sub to add the two standard numbers, then use the .add array function
+		# manually and add in the new/gamespecific variables to the double array
+		# example stattype.add("Highest Score");
+array<double> statnumbers[0];
+
+		#below is the string array with the units for each summ stat - this will have to be added to with each game
+		#use the .add array function and write the string for each additional stat in the scenario
+		#example stattype.add("milliseconds");
+array<string> units[8] = {"Games", "Rounds", "Rounds", "Rounds", "", "Points", "Points", "Milliseconds"};
+		#**MAKE SURE THE NUMBERS ARE THE SAME IN EACH ARRAY AND THAT THEY MATCH WITH THE "statitem_index" VAR
+
+		#Makes the display texts to be used for the summstat page (stats_pic)
+array<string> statdisplay_strings[statitem_index];# used in stats_sizing below to make strings
+array<text> statdisplay_texts[0];# used in stats_sizing below to make basic stat items
+
+	#---- Stat GAME variables
+int statitemgame_index = 7; # denotes the number of stats / objects / text items to appear on the screen for GAME stats
+int numstatrowsgame = 7; # number of rows to be used on the GAME layout
+int numstatcolumnsgame = 1; # number of columns to be used on the GAME layout
+
+		#below is the string array with the gamestat labels - this will have to be added to with each game
+		#use the .add array function and write the string for each additional stat in the scenario
+		#example stattype.add("Session Time");
+array<string> statgametype[7] = {"Number of Rounds Completed", "Number of Correct Rounds", "Number of Incorrect Rounds",
+"Game Score", "Highest Level Completed", "Highest Round Score for the Game", "Avg Response Time per Round"};
+
+		# --- sub statnumber_gamevaradd ---
+		#below is the string array with the actual numbers for each summ stat - this will have to be added to with each game
+		# first run the "statnumber_varadd" sub to add the two standard numbers, then use the .add array function
+		# manually and add in the new/gamespecific variables to the double array
+		#example stattype.add("Highest Score");
+array<double> statgamenumbers[0];
+
+		#below is the string array with the units for each game stat - this will have to be added to with each game
+		#use the .add array function and write the string for each additional stat in the scenario
+		#example stattype.add("seconds");
+array<string> gameunits[7] = {"Rounds", "Rounds", "Rounds", "Points", "", "Points", "Milliseconds"};
+		#**MAKE SURE THE NUMBERS ARE THE SAME IN EACH ARRAY AND THAT THEY MATCH WITH THE "statitem_index" VAR
+
+		#Makes the display texts to be used for the gamestat page (gamestats_pic)
+array<string> statdisplaygame_strings[statitemgame_index];# used in statsgame_sizing below to make strings
+array<text> statdisplaygame_texts[0];# used in statsgame_sizing below to make basic text items
+
+	#----Making the grid for the stats display
+		#operator variables used to make the grid
+double ygridupboundary = (used_screen_height / 2) - ((used_screen_height / 2) * 0.50);# uppermost y coordinate (underneath title)
+double totalysize = used_screen_height - (((used_screen_height / 2) * 0.50) * 2);# the total amount of y space (180)
+double xgridrightboundary = (used_screen_width / 2) - ((used_screen_width / 2) * 0.40);# rightmost x coordinate (a wee bit in from edge)
+double totalxsize = used_screen_width - (((used_screen_width / 2) * 0.40) * 2); # the total amount of x space (336 ish)
+double yitemsize;
+double xitemsize;
+string layouttype; # for future use - could be something like "box" or "twolists"...tbd
+array<double> statpiccoors[statitem_index][2];# the actual coordinates in the grid of the text (or boxes) ***the key array***
+array<double> statpiccoors2[0];
+array<double> linepiccoors[statitem_index][2];# the actual coordinates in the grid of the lines
+array<string> statlabels[0];
+
+		# --- sub make_stats_grid ---
+		#makes the grid fro the stat displays based on the i) number of stats and the desired number of rows/columns
+		#*important and useful sub
+sub make_stats_grid (int numstats, int gridrows, int gridcolumns) begin
+	statpiccoors.resize(0);
+	statpiccoors.resize(numstats);
+	linepiccoors.resize(0);
+	linepiccoors.resize(numstats);
+	yitemsize = (totalysize) / gridrows;
+	xitemsize = (totalxsize) / gridcolumns;
+loop 
+int i = 1;
+array<double> ysequence[numstats];
+array<double> xsequence[numstats];
+array<int> ysequenceindices[0];
+int totalyindexcount = 0;
+int xsequenceindex = 1;
+bool stopysequence = false;
+bool stopxsequence = false;
+ until i > numstats begin
+		loop int j = 1 until stopysequence == true begin
+			ysequence[j] = (ygridupboundary) - ((yitemsize * j) - (0.5 * yitemsize));
+				if j == numstats then
+				stopysequence = true;
+			end;
+			j = j + 1;
+		end;
+		
+		loop 
+		int j = 1;
+		bool stoploop = false;
+		until stoploop == true begin
+			if ysequenceindices.count() >= numstats then
+				stoploop = true;
+			elseif ysequenceindices.count() < numstats then
+			loop int y = 1 until y > gridcolumns || totalyindexcount >= numstats begin
+				ysequenceindices.add(j);
+				y = y + 1;
+				totalyindexcount = totalyindexcount + 1;
+			end;
+		end;
+			j = j + 1;
+		end;
+		
+		loop int k = 1 until stopxsequence == true begin
+			xsequence[k] = (xgridrightboundary * (-1)) + ((xitemsize * k) - (0.5 * xitemsize));#-----**original
+			#xsequence[k] = (xgridrightboundary * (-1)) + ((xitemsize * k) - (0.16 * xitemsize));# ----** shifted right
+			if k == gridcolumns then
+				stopxsequence = true;
+			end;
+			k = k + 1;
+		end;
+	
+	statpiccoors[i][1] = xsequence[xsequenceindex];
+	statpiccoors[i][2] = ysequence[ysequenceindices[i]];
+	linepiccoors[i][1] = xsequence[xsequenceindex];
+	linepiccoors[i][2] = ysequence[ysequenceindices[i]] - (0.4 * yitemsize);
+	i = i + 1;
+	xsequenceindex = xsequenceindex + 1;
+	if xsequenceindex > gridcolumns then
+		xsequenceindex = 1;
+	end;
+end;
+end;
+
+
+		#--- sub stat_sizing --- --- statgame_sizing ---  --- sub get_stat_resp ---
+		# makes and sizes coordinates for stats screen (both summ and game) based on number of columns and rows 
+		#- makes and sizes textsparts for stats
+		# gets touch response on the back button for stats
+sub stats_sizing begin
+		#generic partsizing for statpic
+
+loop int i = 1 until i > statitem_index begin
+	statdisplay_strings.add("");
+	statdisplay_texts.add(new text);
+	i = i + 1;
+end;
+statpage_text.set_font_size(used_screen_height * 0.118);
+statpage_text.set_max_text_height(used_screen_height * 0.118);
+statpage_text.redraw();
+
+double statfontsizey = yitemsize * 0.74;
+double statfontsizex = xitemsize * 0.98;
+
+if device_description() != "LENOVO 20175" then
+	statfontsizey = yitemsize * 0.74;
+	statfontsizex = xitemsize * 0.988;
+end;
+
+
+loop int i = 1 until i > statitem_index begin
+statdisplay_strings[i] = stattype[i] + ": " + string(statnumbers[i]) + " " + units[i];
+statdisplay_texts[i].set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+statdisplay_texts[i].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+statdisplay_texts[i].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statdisplay_texts[i].set_font("Courier New");
+statdisplay_texts[i].set_caption(statdisplay_strings[i]);
+statdisplay_texts[i].set_font_size(statfontsizey);
+statdisplay_texts[i].set_height(statfontsizey);
+statdisplay_texts[i].set_width(statfontsizex);
+statdisplay_texts[i].set_max_text_height(statfontsizey);
+statdisplay_texts[i].set_max_text_width(statfontsizex);
+statdisplay_texts[i].redraw();
+
+double linesize = (statfontsizex / 2);
+stat_lines[1].add_line(linesize * (-1), 0, linesize, 0);
+stat_lines[1].set_line_width(statfontsizey * 0.02);
+stat_lines[1].redraw();
+
+stats_pic.add_part(statdisplay_texts[i], statpiccoors[i][1], statpiccoors[i][2]);
+#stats_pic.set_part_x(i, statpiccoors[i][1], right_coordinate);
+	i = i + 1;
+end;
+if coloradjust == true then
+stats_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statpage_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+statpage_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+statpage_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statpage_text.redraw();
+end;
+if addbgfile == true then
+stats_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+stats_pic.add_part(perimeter_linebox, 0, 0);
+stats_pic.add_part(statpage_text, 0, used_screen_height * 0.39);
+stats_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+stats_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+stats_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+end;
+
+sub statsgame_sizing begin
+		#generic partsizing for statpic
+loop int i = 1 until i > statitemgame_index begin
+	statdisplaygame_strings.add("");
+	statdisplaygame_texts.add(new text);
+	i = i + 1;
+end;
+#end;
+statgamepage_text.set_font_size(used_screen_height * 0.118);
+statgamepage_text.set_max_text_height(used_screen_height * 0.118);
+statgamepage_text.redraw();
+
+double statfontsizey = yitemsize * 0.74;
+double statfontsizex = xitemsize * 0.98;
+
+loop int i = 1 until i > statitemgame_index begin
+statdisplaygame_strings[i] = statgametype[i] + ": " + string(statgamenumbers[i]) + " " + gameunits[i];
+statdisplaygame_texts[i].set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+statdisplaygame_texts[i].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statdisplaygame_texts[i].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statdisplaygame_texts[i].set_font("Courier New");
+statdisplaygame_texts[i].set_caption(statdisplaygame_strings[i]);
+statdisplaygame_texts[i].set_font_size(statfontsizey);
+statdisplaygame_texts[i].set_height(statfontsizey);
+statdisplaygame_texts[i].set_width(statfontsizex);
+statdisplaygame_texts[i].set_max_text_height(statfontsizey);
+statdisplaygame_texts[i].set_max_text_width(statfontsizex);
+statdisplaygame_texts[i].set_align(align_left);
+statdisplaygame_texts[i].redraw();
+
+double linesize = (statfontsizex / 2);
+stat_lines[1].add_line(linesize * (-1), 0, linesize, 0);
+stat_lines[1].set_line_width(statfontsizey * 0.02);
+stat_lines[1].redraw();
+
+statsgame_pic.add_part(statdisplaygame_texts[i], statpiccoors[i][1], statpiccoors[i][2]);
+#statsgame_pic.add_part(stat_lines[1], linepiccoors[i][1], linepiccoors[i][2]);
+
+	i = i + 1;
+end;
+
+if coloradjust == true then
+statsgame_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statgamepage_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+statgamepage_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+statgamepage_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+statgamepage_text.redraw();
+end;
+if addbgfile == true then
+statsgame_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+
+statsgame_pic.add_part(perimeter_linebox, 0, 0);
+statsgame_pic.add_part(statgamepage_text, 0, used_screen_height * 0.39);
+statsgame_pic.add_part(menu_line, 0, used_screen_height * 0.31);
+statsgame_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+statsgame_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+end;
+
+sub get_stats_resp (string typeofstat) begin
+		
+loop bool endstatslist  = false until endstatslist == true begin	
+	int down_ct = response_manager.total_response_count(1);
+	int up_ct = response_manager.total_response_count(2);
+	
+	if typeofstat == "summ" then
+	stats_pic.present();
+	elseif typeofstat == "game" then
+	statsgame_pic.present();
+	end;
+
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		if typeofstat == "summ" then
+		stats_pic.present();
+		elseif typeofstat == "game" then
+		statsgame_pic.present();
+		#end;
+end;
+#stats_pic.present();
+		#button_click.present();
+		endstatslist = true;
+	end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+
+end;
+if typeofstat == "summ" then
+stats_trial.present();
+elseif typeofstat == "game" then
+statsgame_trial.present();
+end;
+
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+stats_pic.clear();
+statsgame_pic.clear();
+end;
+
+
+	#---- Sizing and Displaying scores
+		# --- sort_scores --- --- sub scorelist_sizing --- --- sub get_score_resp
+		#Sorts scores into the proper highlow format
+		#and sizes the scores then displays scores with an option to exit the score list thats shown
+
+		# --- sub sort_scores ---
+		# sub that takes the current gamescore and re-organizes it into order of highest to lowest
+sub sort_scores begin
+
+int countscores_before;
+int startindex_before;
+int countscores_after;
+int startindex_after;
+
+if preorpost == "pre" then
+	loop int i = 1 until i > highlowgmtrial_scores.count() begin
+		newhighlowgmtrial_scores.add(highlowgmtrial_scores[i]);
+		i = i + 1
+	end;
+
+elseif preorpost == "post" then
+newhighlowgmtrial_scores.resize(0);
+#--add to chronological gametrial scores array
+gametrial_scores.add(gametrial_score);
+#-- create ordered gametrial score array (int highlowgmtrial_scores) - find out where to insert score, how many scores before, before_index, how many scores after and after index
+if gametrial_number == 1 then
+	insert_index = 1;
+	countscores_before = 0;
+	startindex_before = 0;
+	countscores_after = 0;
+	startindex_after = 0;
+elseif gametrial_number > 1 then
+	loop 
+		int i = 1;
+		bool insert_found = false;
+		until insert_found == true #|| i > highlowgmtrial_scores.count() 
+		begin
+			if gametrial_score >= highlowgmtrial_scores[i] then
+				insert_index = i;
+				countscores_before = i - 1;
+				if countscores_before == 0 then
+					startindex_before = 0;
+				else
+					startindex_before = i - (i -1);
+				end;
+				countscores_after = highlowgmtrial_scores.count() - (i - 1);
+				startindex_after = i + 1;
+				insert_found = true;
+			else
+				i = i + 1;
+				if i == highlowgmtrial_scores.count() + 1 then
+					insert_index = i;
+					countscores_before = i - 1;
+					startindex_before = i - (i -1);
+					countscores_after = 0;
+					startindex_after = 0;
+					insert_found = true;
+				end;
+			end;
+		end;
+	end;
+
+
+loop int i = 1 until i > highlowgmtrial_scores.count() + 1 begin
+	newhighlowgmtrial_scores.add(0);
+	i = i + 1;
+end;
+
+newhighlowgmtrial_scores[insert_index] = gametrial_score;
+
+if countscores_before > 0 then
+	loop int i = 1 until i > countscores_before begin
+		newhighlowgmtrial_scores[startindex_before] = highlowgmtrial_scores[startindex_before];
+		startindex_before = startindex_before + 1;
+		i = i + 1;
+	end;
+end;
+
+if countscores_after > 0 then
+	loop int i = 1 until i > countscores_after begin
+		newhighlowgmtrial_scores[startindex_after] = highlowgmtrial_scores[startindex_after - 1];
+		startindex_after = startindex_after + 1;
+		i = i + 1;
+	end;
+end;
+end;
+end;
+
+sub scorelist_sizing begin
+	array<double> scorelist_coors[6][2];
+scorelist_coors[1][2] = used_screen_height * 0.2343;
+scorelist_coors[2][2] = used_screen_height * 0.1042;
+scorelist_coors[3][2] = used_screen_height * 0.026 * (-1);
+scorelist_coors[4][2] = used_screen_height * 0.1563 * (-1);
+scorelist_coors[5][2] = used_screen_height * 0.2865 * (-1);
+scorelist_coors[6][2] = used_screen_height * 0.4297 * (-1);
+
+newhighlowgmtrial_writescores.resize(0);	
+loop
+int upto = newhighlowgmtrial_scores.count();
+if upto <= 5 then
+	upto = 5;
+end;
+int i = 1;
+until i > upto begin
+	newhighlowgmtrial_writescores.add("-");
+	i = i + 1;
+end;
+
+loop int i = 1 until i > newhighlowgmtrial_scores.count() begin
+	newhighlowgmtrial_writescores[i] = string(newhighlowgmtrial_scores[i]);
+	i = i + 1;
+end;
+
+if coloradjust == true then
+scorelist_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+end;
+if addbgfile == true then
+scorelist_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+top_title.set_font_size(used_screen_height * 0.0972);
+top_title.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+top_title.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_title.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_title.redraw();
+double score12_linecoors = used_screen_width * 0.1828;
+score1_line.add_line(score12_linecoors * (-1), 0, score12_linecoors, 0);
+score1_line.set_line_width(used_screen_height * 0.0052);
+score1_line.redraw();
+scorelist_pic.add_part(top_title, 0, used_screen_height * 0.4067);
+scorelist_pic.add_part(score1_line, 0, used_screen_height * 0.3125);
+scorelist_pic.add_part(score1_line, 0, used_screen_height * 0.3581 * (-1));
+scorelist_pic.add_part(back_arrow, forwardbackarrow_x, forwardbackarrow_y);
+#perform_pic.add_part(forwardback_linebox, forwardback_x, forwardback_y);
+scorelist_pic.add_part(forwardback_highlight, forwardback_x, forwardback_y);
+
+array <double> score_lineboxpolycoors[4][2];
+loop int i = 1 until i > 4 begin
+	score_lineboxpolycoors[i][1] = used_screen_width * 0.1184;
+	score_lineboxpolycoors[i][2] = used_screen_width * 0.0321;
+	if i == 1 || i == 4 then
+		score_lineboxpolycoors[i][1] = score_lineboxpolycoors[i][1] * (-1);
+	end;
+	if i == 3 || i == 4 then
+		score_lineboxpolycoors[i][2] = score_lineboxpolycoors[i][2] * (-1);
+	end;
+	i = i + 1;
+end;
+loop int i = 1 until i > score_lineboxes.count() begin
+	score_lineboxes[i].add_polygon(score_lineboxpolycoors, false, 1, 0);
+	score_lineboxes[i].redraw();
+	i = i + 1;
+end;
+
+loop int i = 1 until i > 5 begin
+	#scores[i].set_font_size(used_screen_height * 0.08);
+	scores[i].set_font_size(score_lineboxes[1].height() * 0.92);
+	scores[i].set_max_text_height(score_lineboxes[1].height() * 0.92);
+	scores[i].set_max_text_width(score_lineboxes[1].width() * 0.92);
+	scores[i].set_caption(newhighlowgmtrial_writescores[i]);
+	scores[i].set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+	scores[i].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scores[i].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scores[i].redraw();
+	score_texts[i].set_font_size(used_screen_height * 0.086);
+	score_texts[i].set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+	score_texts[i].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	score_texts[i].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	score_texts[i].redraw();
+	score_lineboxes[i].set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+	score_lineboxes[i].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 0);
+	score_lineboxes[i].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	score_lineboxes[i].redraw();
+	scorelist_pic.add_part(scores[i], scorelist_coors[i][1], scorelist_coors[i][2]);
+	scorelist_pic.add_part(score_texts[i], scorelist_coors[i][1] - (used_screen_width * 0.1607), scorelist_coors[i][2]);
+	scorelist_pic.add_part(score_lineboxes[i], scorelist_coors[i][1], scorelist_coors[i][2]);
+	i = i + 1;
+end;
+
+if preorpost == "post" then
+highlight_box.set_size(used_screen_width * 0.3029, used_screen_height * 0.1224);
+highlight_box.set_line_width(used_screen_width * 0.0032);
+highlight_box.set_radius(used_screen_width * 0.19);
+highlight_box.set_line_width(used_screen_width * 0.004);
+highlight_box.redraw();
+if insert_index > 5 then
+	scores[6].set_font_size(used_screen_height * 0.086);
+	scores[6].set_caption(string(insert_index) + ".");
+	scores[6].set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+	scores[6].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scores[6].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scores[6].redraw();
+	scores[7].set_font_size(used_screen_height * 0.08);
+	scores[7].set_caption(newhighlowgmtrial_writescores[insert_index]);
+	scores[7].set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+	scores[7].set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scores[7].set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+	scores[7].redraw();
+	backgrounds[bg_index].load();
+	double scorelist_bottom_y = used_screen_height * 0.4296 * (-1);
+	scorelist_pic.add_part(scores[6], used_screen_width * 0.1757 * (-1), scorelist_bottom_y);
+	scorelist_pic.add_part(scores[7], 0, scorelist_bottom_y);
+	#scorelist_pic.add_part(list_linebox, 0, scorelist_bottom_y);
+	scorelist_pic.add_part(score_lineboxes[1], 0, scorelist_bottom_y);
+	
+	scorelist_pic.add_part(highlight_box, 0, scorelist_bottom_y);
+else
+	scorelist_pic.add_part(highlight_box, scorelist_coors[insert_index][1], scorelist_coors[insert_index][2]);
+end;
+end;
+end;
+
+
+sub get_score_resp begin
+	scorelist_sizing();
+		
+loop bool endscorelist  = false until endscorelist == true begin	
+	int down_ct = response_manager.total_response_count(1);
+	int up_ct = response_manager.total_response_count(2);
+	
+	scorelist_pic.present();
+		
+loop until
+	response_manager.total_response_count(1) > down_ct
+	begin
+end;
+
+touch_response tr = touch_response( response_manager.last_response_data());
+double x_touch = tr.x();
+double y_touch = tr.y();
+
+if ( x_touch < forwardback_x + forback_coors_x) && 
+	( x_touch > forwardback_x - forback_coors_x) &&
+	( y_touch < forwardback_y + forback_coors_y) &&
+	( y_touch > forwardback_y - forback_coors_y) then
+		forwardback_highlight.set_fill_color(100, 100, 200, 160);
+		forwardback_highlight.redraw();
+		scorelist_pic.present();
+		#button_click.present();
+		endscorelist = true;
+	end;
+	
+loop until
+	response_manager.total_response_count(2) > down_ct
+	begin
+end;
+
+end;
+scorelist_trial.present();
+forwardback_highlight.set_fill_color(100, 100, 200, 0);
+forwardback_highlight.redraw();
+end;
+
+#--- sb gamescore_sizing ---
+# sizes the parts for the after game display score
+# goes with "gmtrialscore_trial" not with any "sizing", "display" or "response" subroutine
+array<double> afterscore_coors[4][2];
+double afterscorepoly_x = used_screen_width * 0.1098;
+double afterscorepoly_y = used_screen_height * 0.0781;
+loop int i = 1 until i > 4 begin
+	afterscore_coors[i][1] = afterscorepoly_x;
+	afterscore_coors[i][2] = afterscorepoly_y;
+	if i == 1 || i == 4 then
+		afterscore_coors[i][1] = afterscore_coors[i][1] * (-1);
+	end;
+	if i == 3 || i == 4 then
+		afterscore_coors[i][2] = afterscore_coors[i][2] * (-1);
+	end;
+	i = i + 1;
+end;
+
+sub gamescore_sizing begin
+	#---- sizing red seal score display (plus associated parts at end of game
+win_bit.set_load_size(used_screen_height * 0.3906, used_screen_width * 0.2196, 0);
+win_bit.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+win_bit.load();
+afterscore_linebox.add_polygon(afterscore_coors, false, 1, 0);
+afterscore_linebox.set_line_width(used_screen_height * 0.0052);
+afterscore_linebox.redraw();
+ttext.set_font_size(used_screen_height * 0.0391);#---- this is the text that displays the score
+ttext.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+ttext.redraw();
+pointtext.set_font_size(used_screen_height * 0.0491);
+pointtext.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+pointtext.redraw();
+#gmtrial_score.set_font_size(used_screen_height * 0.0902);
+gmtrial_score.set_font_size(afterscore_linebox.height() * 0.74);
+gmtrial_score.set_max_text_width(afterscore_linebox.width() * 0.9);
+gmtrial_score.set_max_text_height(afterscore_linebox.height() * 0.74);
+gmtrial_score.set_caption(string(gametrial_score));
+gmtrial_score.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+gmtrial_score.redraw();
+
+if coloradjust == true then
+gmtrialscore_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+win_bit.set_transparent_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+win_bit.load();
+ttext.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3] );
+ttext.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+ttext.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+ttext.redraw();
+pointtext.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+pointtext.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+pointtext.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+pointtext.redraw();
+afterscore_linebox.set_line_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3], 255);
+afterscore_linebox.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3], 255);
+afterscore_linebox.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+afterscore_linebox.redraw();
+gmtrial_score.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3] );
+gmtrial_score.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+gmtrial_score.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+gmtrial_score.redraw();
+end;
+#gmtrial_score.redraw();
+
+if addbgfile == true then
+gmtrialscore_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+#gmtrialscore_pic.clear();
+#gmtrialscore_pic.add_part(backgrounds[bg_index], 0, 0);
+gmtrialscore_pic.add_part(win_bit, 0, used_screen_height * 0.2865);
+gmtrialscore_pic.add_part(ttext, 0, used_screen_height * 0.013 * (-1));
+gmtrialscore_pic.add_part(afterscore_linebox, 0, used_screen_height * 0.1953 * (-1));
+gmtrialscore_pic.add_part(pointtext, 0, used_screen_height * 0.391 * (-1));
+gmtrialscore_pic.add_part(gmtrial_score, 0, used_screen_height * 0.1953 * (-1));
+end;
+
+#--- sub toptrial_sizing ---
+# sizes the parts for the after game display score
+# goes with "gmtrialscore_trial" not with any "display" or "response" subroutine
+sub toptrial_sizing begin
+
+top_bit.set_load_size(used_screen_width * 0.3, used_screen_height * 0.3, 0);
+top_bit.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_bit.load();
+top_text.set_font_size(used_screen_height * 0.1302);
+top_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_text.redraw();
+
+if coloradjust == true then
+top_pic.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_bit.set_transparent_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3]);
+top_bit.load();
+top_text.set_font_color(colors[fcolor_index][1], colors[fcolor_index][2], colors[fcolor_index][3] );
+top_text.set_background_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_text.set_transparent_color(colors[tcolor_index][1], colors[tcolor_index][2], colors[tcolor_index][3]);
+top_text.redraw();
+end; 
+if addbgfile == true then
+top_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+end;
+top_pic.add_part(top_text, 0, used_screen_height * 0.34);
+top_pic.add_part(top_bit, 0, used_screen_height * 0.1 * (-1));
+end;
+
+#--- sub toptrial_present ---
+# presents top_trial if gamescore is high enough
+# goes with "gmtrialscore_trial" not with any "display" or "response" subroutine
+sub toptrial_present begin
+if gametrial_score >= overallhighestgm_score then
+	toptrial_sizing();
+	ding_wav.load();
+	tpic_pic.insert_part(1, backgrounds[bg_index], 0, 0);
+	transitionpic_trial.present();
+	tpic_pic.remove_part(1);
+	perfect_trial.set_duration(600);
+	#toptrial_sizing();
+	top_trial.set_duration(600);
+	#top_trial.present();
+	top_trial.add_stimulus_event(ding_sound);
+	top_trial.set_duration(200);
+	top_trial.present();
+	top_trial.set_duration(2200);
+	top_trial.present();
+	ding_wav.unload();
+	overallhighestgm_score = gametrial_score;
+end;
+end;
+
+
+#META SUBS FOR MENU
+	#----Subroutines that incorporate previous subs to allow toggling through the menu settings and preformance settings
+	
+		# --- sub setgame_seq (meta) ---
+		# sub that sets the type of settings - could be "full" (diff and rounds and confirm), "rounds" (just rounds) or "none"
+		# returns the result of whether to "play" or go "back"
+string setgameseq_type = "full";
+sub string setgame_seq (string setgameseqtype) begin
+	string setgameresult;
+	loop bool endsetgameseq = false until endsetgameseq == true begin
+		string nextmove;
+		if setgameseqtype == "full" then
+			loop bool diffseqover = false until diffseqover == true begin
+				nextmove = get_diff_resp();
+				if nextmove == "forward" then
+					loop bool roundseqover = false until roundseqover == true begin
+						nextmove = get_rounds_resp();
+						if nextmove == "forward" then
+							nextmove = get_confirm_resp();
+							if nextmove == "forward" then
+								setgameresult = "play";
+								roundseqover = true;
+								diffseqover = true;
+								endsetgameseq = true;
+							elseif nextmove == "back" then
+								roundseqover = true;
+							end;
+						elseif nextmove == "back" then
+							roundseqover = true;
+						end;
+					end;
+				elseif nextmove == "back" then
+					setgameresult = "menu";
+					diffseqover = true;
+					endsetgameseq = true;
+				end;
+			end;
+		elseif setgameseqtype == "rounds" then
+			nextmove = get_rounds_resp();
+			if nextmove == "forward" then
+				setgameresult = "play";
+				endsetgameseq = true;
+			elseif nextmove == "back" then
+				setgameresult = "back";
+				endsetgameseq = true;
+			end;
+		#elseif setgameseqtype == "none" then
+		elseif setgameseqtype != "rounds" || setgameseqtype != "full" then
+			endsetgameseq = true;
+		end;
+	end;
+	return setgameresult
+end;
+	
+		# --- sub viewperform_seq (meta) ---
+		# sub that presents the perform menu and toggles through stats and scores
+sub viewperform_seq begin
+	string performmenunext;
+	loop bool endperformseq = false until endperformseq == true begin
+		performmenunext = get_perform_resp();
+		if performmenunext == "scores" then
+			get_score_resp();
+		elseif performmenunext == "stats" then
+			make_stats_grid(statitem_index, numstatrows, numstatcolumns);
+			stats_sizing();
+			summorgamestat = "summ";
+			get_stats_resp(summorgamestat);
+		elseif performmenunext == "back" then
+			endperformseq = true;
+		end;
+	end;
+end;
+
+		# --- sub menu_seq (meta) ---
+		# sub that presents the entire menu sequence - menutype can be set to "pre" or "post"
+sub menu_seq (string menutype) begin
+if menutype == "pre" then
+	loop string gamestatus until gamestatus == "play" begin
+		gamestatus = get_menu_resp();
+		if gamestatus == "button1" then
+			gamestatus = setgame_seq(setgameseq_type);
+		elseif gamestatus == "button2" then
+			instructions(insttype);
+		elseif gamestatus == "button3" then
+			summorgamestat = "summ";
+			viewperform_seq();
+		elseif gamestatus == "i" then
+			getinfo_resp();
+		end
+	end;
+elseif menutype == "post" then
+	loop string gamestatus until gamestatus == "goodbye" begin
+		#menupartend_sizing();
+		gamestatus = get_menu_resp();
+		if gamestatus == "button1" then
+			make_stats_grid(statitemgame_index, numstatrowsgame, numstatcolumnsgame);
+			statsgame_sizing();
+			summorgamestat = "game";
+			get_stats_resp(summorgamestat);
+		elseif gamestatus == "button2" then
+			make_stats_grid(statitem_index, numstatrows, numstatcolumns);
+			summorgamestat = "summ";
+			viewperform_seq();
+		elseif gamestatus == "button3" then
+			string exit_test = get_exit_resp();
+			if exit_test == "exit" then
+				full_finish();
+				gamestatus = "goodbye"
+				#exit("See you next time!");
+			end;
+		elseif gamestatus == "i" then
+			getinfo_resp();
+			#full_finish();
+			#gamestatus = "goodbye";
+		end
+	end;
+end;
+end;
+
+#---------------------------------------------------------------------------
+#POSTGAME NUMBERS
+	#----Subroutines that re-organize scores and print output into files (includes in-game activity logging)
+
+		# --- sub print_act ---
+		# prints output to log general experiment/session activity (usually taken 4 times per sce)
+		#  - prints general activity stamp
+sub print_act begin
+	if act_event == "sce_start" then
+		sce_starts = sce_starts + 1;
+		act_index = sce_starts;
+	elseif act_event == "game_start" then
+		game_starts = game_starts + 1;
+		act_index = game_starts;
+	elseif act_event == "game_end" then
+		game_ends = game_ends + 1;
+		act_index = game_ends;
+	elseif act_event == "sce_end" then
+		sce_ends = sce_ends + 1;
+		act_index = sce_ends;
+	end;
+act_stamp = exp_name + "." + sce_name + "." + "sub" + string(id_number) + "." + string(spectime2) + 
+"." + act_event + string(act_index);
+out.open_append(scenario_directory + "\\" + "0zzz." + exp_name + "." + file_type + ".txt");
+out.print_line(act_stamp);
+#out.print(act_stamp);
+#out.print("\t");
+end;	 
+
+		# --- sub print_specsoutput ---
+		# prints output to adjust experiment based on game (standard gametrialnumber, cumulative score, 
+		#chronoscores array and highlow scores array)
+sub print_specsoutput begin
+out.open(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+out.print(gametrial_number);
+out.print("\t");
+out.print(overallcumulative_score);
+
+loop int i = 1 until i > gametrial_scores.count() begin
+	out.print("\t");
+	out.print(gametrial_scores[i]);
+	i = i + 1;
+end;
+
+loop int i = 1 until i > gametrial_scores.count() begin
+	out.print("\t");
+	out.print(newhighlowgmtrial_scores[i]);
+	i = i + 1;
+end;
+end;
+
+		# --- sub print_summstatoutput ---
+		# prints output to adjust experiment based on game (standard id_number and sess number)
+sub print_summstatsoutput begin
+out.open(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+#out.print(gametrial_number);
+#out.print("\t");
+out.print(numroundstotal);
+out.print("\t");
+out.print(overallcorr_rounds);
+out.print("\t");
+out.print(overallincorr_rounds);
+out.print("\t");
+out.print(overallhighlevel);
+out.print("\t");
+out.print(overallhighroundscore);
+out.print("\t");
+out.print(overallhighestgm_score);
+out.print("\t");
+out.print(overallcumm_rt);
+out.print("\t");
+out.print(overallavg_rt);
+end;
+
+		# --- sub print_summary ---
+		# prints output to adjust experiment based on game (standard id_number and sess number)
+sub print_summary begin
+#out.open_append(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+out.open(scenario_directory + "\\" + sce_name + "." + file_type + ".txt");
+#*add numbers
+end;
+
